@@ -91,7 +91,7 @@ installed_version() {
 default_method() {
   if [ "$PLATFORM" = macos ]; then METHOD=dmg; return; fi
   if [ -r /etc/os-release ] && grep -qi 'arch' /etc/os-release 2>/dev/null; then
-    say "Arch Linux detected: you can also use the AUR package ('yay -S rusty-inbox-bin')."
+    say "Arch Linux detected: a native package is also available (makepkg -si in packaging/aur/rusty-inbox-bin)."
   fi
   METHOD=appimage
 }

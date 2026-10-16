@@ -9,7 +9,6 @@ Rust mail engine · Qt 6 / QML interface · follows your desktop theme
 
 [![CI](https://github.com/karem505/rusty-inbox/actions/workflows/ci.yml/badge.svg)](https://github.com/karem505/rusty-inbox/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/karem505/rusty-inbox?include_prereleases)](https://github.com/karem505/rusty-inbox/releases)
-[![AUR](https://img.shields.io/aur/version/rusty-inbox?label=AUR)](https://aur.archlinux.org/packages/rusty-inbox)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 
 [Download](#install) · [Features](#features) · [Screenshots](#screenshots) · [Build from source](#build-from-source)
@@ -71,8 +70,8 @@ A full tour on YouTube, recorded on a demo mailbox:
 
 | Platform | Package |
 |---|---|
-| **Arch Linux** | `yay -S rusty-inbox` (builds from source) or `yay -S rusty-inbox-bin` |
-| **Linux (any distro)** | Flatpak bundle or AppImage from [Releases](https://github.com/karem505/rusty-inbox/releases) |
+| **Linux (any distro)** | AppImage or Flatpak bundle from [Releases](https://github.com/karem505/rusty-inbox/releases) |
+| **Arch Linux** | `makepkg -si` in [`packaging/aur/rusty-inbox`](packaging/aur/rusty-inbox) (from source) or [`rusty-inbox-bin`](packaging/aur/rusty-inbox-bin); AUR listing coming |
 | **Windows 10/11** | Installer (`.exe`) or portable `.zip` from [Releases](https://github.com/karem505/rusty-inbox/releases) |
 | **macOS 12+** | `.dmg` (Apple Silicon and Intel) from [Releases](https://github.com/karem505/rusty-inbox/releases) |
 
