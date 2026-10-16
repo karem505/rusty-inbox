@@ -21,3 +21,6 @@ dirs = "6"
 
 [build-dependencies]
 cxx-qt-build = "0.10"
+
+[target.'cfg(windows)'.build-dependencies]
+embed-resource = "3"
