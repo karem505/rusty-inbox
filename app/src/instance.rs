@@ -32,6 +32,10 @@ fn endpoint() -> PathBuf {
     }
     #[cfg(target_os = "linux")]
     if let Some(r) = std::env::var_os("XDG_RUNTIME_DIR") {
+        // in a Flatpak only $XDG_RUNTIME_DIR/app/<app id> is shared between running copies
+        if let Some(id) = std::env::var_os("FLATPAK_ID") {
+            return PathBuf::from(r).join("app").join(id).join("rusty-inbox.sock");
+        }
         return PathBuf::from(r).join("rusty-inbox.sock");
     }
     crate::engine::data_dir().join("instance")
