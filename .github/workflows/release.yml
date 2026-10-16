@@ -49,7 +49,7 @@ jobs:
       - uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.QT_VERSION }}
-          modules: qtwebengine qtwebchannel qtpositioning
+          modules: qtwebengine qtwebchannel qtpositioning qtserialport
           cache: true
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -73,7 +73,7 @@ jobs:
           QML_SOURCES_PATHS: ${{ github.workspace }}/app/qml
           APPIMAGE_EXTRACT_AND_RUN: "1"
           LINUXDEPLOY_OUTPUT_VERSION: ${{ needs.prepare.outputs.version }}
-          EXTRA_QT_MODULES: "webenginecore;webenginequick;webchannel;positioning;qml;quick;svg;waylandcompositor"
+          EXTRA_QT_MODULES: "webenginecore;webenginequick;webchannel;positioning;qml;quick;svg"
           EXTRA_PLATFORM_PLUGINS: "libqwayland-egl.so;libqwayland-generic.so"
           DEPLOY_PLATFORM_THEMES: "1"
           NO_STRIP: "1"
