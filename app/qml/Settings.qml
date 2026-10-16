@@ -1,0 +1,738 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Controls.impl
+import QtQuick.Layouts
+
+// Settings window (full-window page over the mail view). Every option here is wired to the app:
+// values are saved through the backend (`rustyInbox.*` settings) and applied live.
+Rectangle {
+    id: root
+    property var backend
+    property string page: "general"
+    property var prefs: ({})
+    property var accounts: []
+    property string confirmRemove: ""     // email awaiting removal confirmation
+    property string busyEmail: ""         // add-account request in flight
+    property string addError: ""
+    property bool showManual: false
+    signal closed()
+    signal notice(string text)
+
+    color: Theme.window
+    focus: true
+
+    // the page sits over the mail view: swallow every click, hover and scroll it doesn't use,
+    // so nothing reaches the sidebar or list underneath
+    MouseArea {
+        anchors.fill: parent
+        z: -1
+        hoverEnabled: true
+        acceptedButtons: Qt.AllButtons
+        onWheel: (wheel) => wheel.accepted = true
+    }
+    Keys.onEscapePressed: root.page === "addAccount" ? root.page = "accounts" : root.closed()
+
+    function reload() {
+        prefs = JSON.parse(backend.settings_json())
+        accounts = JSON.parse(backend.account_details_json())
+    }
+    function save(key, value) {
+        const err = backend.set_setting(key, JSON.stringify(value))
+        if (err !== "") root.notice(err)
+        reload()
+    }
+    Component.onCompleted: reload()
+    onVisibleChanged: if (visible) reload()
+
+    Connections {
+        target: root.backend
+        function onAccount_added(email, error) {
+            root.busyEmail = ""
+            if (error === "") {
+                root.addError = ""
+                root.reload()
+                root.page = "accounts"
+                root.notice(qsTr("%1 added. Its mail is downloading now.").arg(email))
+                form.clear()
+            } else {
+                root.addError = error
+            }
+        }
+    }
+
+    readonly property var pages: [
+        { id: "general", label: qsTr("General"), icon: "settings" },
+        { id: "accounts", label: qsTr("Accounts"), icon: "account" },
+        { id: "notifications", label: qsTr("Notifications"), icon: "bell" },
+        { id: "appearance", label: qsTr("Appearance"), icon: "palette" },
+        { id: "shortcuts", label: qsTr("Shortcuts"), icon: "keyboard" },
+        { id: "about", label: qsTr("About"), icon: "info" }
+    ]
+
+    // ---- building blocks -------------------------------------------------------------------
+
+    component Title: Text {
+        font.pixelSize: 22
+        font.weight: Font.DemiBold
+        color: Theme.textStrong
+        bottomPadding: 8
+    }
+    component Group: Text {
+        font.pixelSize: 11
+        font.weight: Font.DemiBold
+        font.capitalization: Font.AllUppercase
+        color: Theme.textMuted
+        topPadding: 18
+        bottomPadding: 6
+    }
+    // one option: label + help text on the left, the control on the right
+    component Option: Rectangle {
+        id: opt
+        property string label
+        property string help
+        default property alias control: slot.data
+        Layout.fillWidth: true
+        implicitHeight: Math.max(56, textCol.implicitHeight + 22)
+        radius: 10
+        color: Theme.surface
+        Column {
+            id: textCol
+            anchors.left: parent.left
+            anchors.leftMargin: 16
+            anchors.right: slot.left
+            anchors.rightMargin: 16
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 3
+            Text { width: parent.width; text: opt.label; font.pixelSize: 14; color: Theme.text; wrapMode: Text.Wrap }
+            Text {
+                width: parent.width
+                visible: opt.help !== ""
+                text: opt.help
+                font.pixelSize: 12
+                color: Theme.textMuted
+                wrapMode: Text.Wrap
+            }
+        }
+        Item {
+            id: slot
+            anchors.right: parent.right
+            anchors.rightMargin: 14
+            anchors.verticalCenter: parent.verticalCenter
+            width: childrenRect.width
+            height: childrenRect.height
+        }
+    }
+    // on/off switch in the theme colours
+    component Toggle: Rectangle {
+        id: tg
+        property string key
+        readonly property bool on: root.prefs[key] === true
+        width: 42
+        height: 24
+        radius: 12
+        color: on ? Theme.accent : Theme.border
+        Behavior on color { ColorAnimation { duration: Theme.fast } }
+        opacity: enabled ? 1 : 0.5
+        Rectangle {
+            width: 18; height: 18; radius: 9
+            y: 3
+            x: tg.on ? tg.width - width - 3 : 3
+            color: tg.on ? Theme.accentText : Theme.window
+            Behavior on x { NumberAnimation { duration: Theme.normal; easing.type: Theme.easing } }
+        }
+        HoverHandler { cursorShape: Qt.PointingHandCursor }
+        TapHandler { onTapped: if (tg.enabled) root.save(tg.key, !tg.on) }
+    }
+    // segmented choice for a fixed set of values
+    component Choice: Row {
+        id: ch
+        property string key
+        property var values: []
+        property var labels: []
+        spacing: 0
+        Repeater {
+            model: ch.values.length
+            delegate: Rectangle {
+                required property int index
+                readonly property bool on: root.prefs[ch.key] === ch.values[index]
+                width: lab.implicitWidth + 22
+                height: 30
+                radius: 7
+                color: on ? Theme.accent : (h.hovered ? Theme.hover : "transparent")
+                border.color: on ? Theme.accent : Theme.border
+                Behavior on color { ColorAnimation { duration: Theme.fast } }
+                Text {
+                    id: lab
+                    anchors.centerIn: parent
+                    text: ch.labels[index]
+                    font.pixelSize: 13
+                    color: parent.on ? Theme.accentText : Theme.text
+                }
+                HoverHandler { id: h; cursorShape: Qt.PointingHandCursor }
+                TapHandler { onTapped: root.save(ch.key, ch.values[index]) }
+            }
+        }
+    }
+    component Button2: Rectangle {
+        id: btn
+        property string text
+        property bool primary: false
+        property bool danger: false
+        signal clicked()
+        implicitWidth: t.implicitWidth + 28
+        implicitHeight: 34
+        radius: 8
+        opacity: enabled ? 1 : 0.5
+        color: primary ? (h2.hovered ? Qt.darker(Theme.accent, 1.08) : Theme.accent)
+                       : danger ? (h2.hovered ? Qt.rgba(1, 0.3, 0.3, 0.18) : "transparent")
+                                : (h2.hovered ? Theme.hover : "transparent")
+        border.color: primary ? Theme.accent : (danger ? Theme.danger : Theme.border)
+        Behavior on color { ColorAnimation { duration: Theme.fast } }
+        Text {
+            id: t
+            anchors.centerIn: parent
+            text: btn.text
+            font.pixelSize: 13
+            font.weight: Font.DemiBold
+            color: btn.primary ? Theme.accentText : (btn.danger ? Theme.danger : Theme.text)
+        }
+        HoverHandler { id: h2; cursorShape: Qt.PointingHandCursor }
+        TapHandler { onTapped: if (btn.enabled) btn.clicked() }
+    }
+    component Field: Column {
+        id: fld
+        property string label
+        property alias text: input.text
+        property alias placeholder: input.placeholderText
+        property bool secret: false
+        property alias input: input
+        Layout.fillWidth: true
+        spacing: 5
+        Text { text: fld.label; font.pixelSize: 12; color: Theme.textSubtle }
+        TextField {
+            id: input
+            width: parent.width
+            echoMode: fld.secret ? TextInput.Password : TextInput.Normal
+            color: Theme.text
+            font.pixelSize: 14
+            selectByMouse: true
+            background: Rectangle {
+                radius: 8
+                color: Theme.surface
+                border.color: input.activeFocus ? Theme.accent : Theme.border
+                border.width: input.activeFocus ? 1.5 : 1
+            }
+        }
+    }
+
+    // ---- layout ----------------------------------------------------------------------------
+
+    RowLayout {
+        anchors.fill: parent
+        spacing: 0
+
+        // page list
+        Rectangle {
+            Layout.preferredWidth: 230
+            Layout.fillHeight: true
+            color: Theme.sidebar
+            Column {
+                anchors.fill: parent
+                anchors.margins: 12
+                spacing: 2
+                Row {
+                    spacing: 8
+                    bottomPadding: 14
+                    IconButton { icon: "back"; tip: qsTr("Back to mail (Esc)"); onClicked: root.closed() }
+                    Text {
+                        text: qsTr("Settings")
+                        font.pixelSize: 18
+                        font.weight: Font.DemiBold
+                        color: Theme.textStrong
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
+                Repeater {
+                    model: root.pages
+                    delegate: Rectangle {
+                        required property var modelData
+                        readonly property bool current: root.page === modelData.id || (modelData.id === "accounts" && root.page === "addAccount")
+                        width: parent.width
+                        height: 34
+                        radius: 8
+                        color: current ? Theme.navSelected : (ph.hovered ? Theme.hover : "transparent")
+                        Behavior on color { ColorAnimation { duration: Theme.fast } }
+                        IconImage {
+                            id: pic
+                            x: 10
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 18; height: 18
+                            sourceSize: Qt.size(36, 36)
+                            source: "qrc:/qt/qml/org/rustyinbox/icons/" + modelData.icon + ".svg"
+                            color: parent.current ? Theme.accent : Theme.icon
+                        }
+                        Text {
+                            anchors.left: pic.right
+                            anchors.leftMargin: 10
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: modelData.label
+                            font.pixelSize: 14
+                            font.weight: parent.current ? Font.DemiBold : Font.Normal
+                            color: Theme.text
+                        }
+                        HoverHandler { id: ph; cursorShape: Qt.PointingHandCursor }
+                        TapHandler { onTapped: { root.page = modelData.id; root.confirmRemove = "" } }
+                    }
+                }
+            }
+        }
+        Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: Theme.border }
+
+        // page content
+        ScrollView {
+            id: scroller
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            contentWidth: availableWidth
+            clip: true
+
+            Item {
+                width: scroller.availableWidth
+                implicitHeight: content.implicitHeight + 60
+
+                ColumnLayout {
+                    id: content
+                    x: Math.max(28, (parent.width - 720) / 2)
+                    y: 28
+                    width: Math.min(720, parent.width - 56)
+                    spacing: 8
+
+                    // ---------------- General
+                    ColumnLayout {
+                        visible: root.page === "general"
+                        Layout.fillWidth: true
+                        spacing: 8
+                        Title { text: qsTr("General") }
+                        Group { text: qsTr("Inbox") }
+                        Option {
+                            label: qsTr("Smart Inbox")
+                            help: qsTr("Group the inbox into People, Pinned, Invitations, Notifications and Newsletters.")
+                            Toggle { key: "smartInbox" }
+                        }
+                        Option {
+                            label: qsTr("Collapse automated mail")
+                            help: qsTr("Notifications and Newsletters start folded so people come first.")
+                            Toggle { key: "collapseAutomated" }
+                        }
+                        Option {
+                            label: qsTr("Mark as read when opened")
+                            help: qsTr("Opening a conversation marks it read. Off: use U to mark it read yourself.")
+                            Toggle { key: "markReadOnOpen" }
+                        }
+                        Option {
+                            label: qsTr("Undo time")
+                            help: qsTr("How long Done, Delete, Snooze and Spam can be undone.")
+                            Choice { key: "undoSeconds"; values: [5, 10, 20, 30]; labels: ["5 s", "10 s", "20 s", "30 s"] }
+                        }
+                        Group { text: qsTr("Sync") }
+                        Option {
+                            label: qsTr("Check for new mail")
+                            help: qsTr("How often every account is checked.")
+                            Choice {
+                                key: "syncMinutes"
+                                values: [1, 2, 5, 15, 30]
+                                labels: [qsTr("1 min"), qsTr("2 min"), qsTr("5 min"), qsTr("15 min"), qsTr("30 min")]
+                            }
+                        }
+                        Option {
+                            label: qsTr("Keep running in the status bar")
+                            help: qsTr("Closing the window keeps %1 in the top bar so mail and notifications keep arriving. Quit from the bar icon.").arg(root.backend.app_name())
+                            Toggle { key: "closeToTray" }
+                        }
+                    }
+
+                    // ---------------- Accounts
+                    ColumnLayout {
+                        visible: root.page === "accounts"
+                        Layout.fillWidth: true
+                        spacing: 8
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Title { text: qsTr("Accounts"); Layout.fillWidth: true }
+                            Button2 { objectName: "addAccountButton"; text: qsTr("Add account"); primary: true; onClicked: root.page = "addAccount" }
+                        }
+                        Text {
+                            visible: root.accounts.length === 0
+                            text: qsTr("No accounts yet. Add one to start.")
+                            color: Theme.textMuted
+                            font.pixelSize: 14
+                        }
+                        Repeater {
+                            model: root.accounts
+                            delegate: Rectangle {
+                                id: card
+                                required property var modelData
+                                property bool editing: false
+                                Layout.fillWidth: true
+                                implicitHeight: cardCol.implicitHeight + 28
+                                radius: 12
+                                color: Theme.surface
+                                ColumnLayout {
+                                    id: cardCol
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.top: parent.top
+                                    anchors.margins: 14
+                                    spacing: 8
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 12
+                                        Rectangle {
+                                            width: 38; height: 38; radius: 19
+                                            color: Theme.avatarFor(card.modelData.email)
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: (card.modelData.name || card.modelData.email).charAt(0).toUpperCase()
+                                                color: Theme.dark ? Theme.window : "white"
+                                                font.pixelSize: 15
+                                                font.weight: Font.DemiBold
+                                            }
+                                        }
+                                        Column {
+                                            Layout.fillWidth: true
+                                            spacing: 2
+                                            Text {
+                                                visible: !card.editing
+                                                text: card.modelData.name || card.modelData.email
+                                                font.pixelSize: 15
+                                                font.weight: Font.DemiBold
+                                                color: Theme.textStrong
+                                            }
+                                            TextField {
+                                                id: nameEdit
+                                                visible: card.editing
+                                                width: 260
+                                                text: card.modelData.name
+                                                placeholderText: qsTr("Display name")
+                                                color: Theme.text
+                                                onAccepted: saveName.clicked()
+                                            }
+                                            Text { text: card.modelData.email; font.pixelSize: 12; color: Theme.textMuted }
+                                        }
+                                        Button2 {
+                                            id: saveName
+                                            text: card.editing ? qsTr("Save") : qsTr("Rename")
+                                            primary: card.editing
+                                            onClicked: {
+                                                if (card.editing) {
+                                                    const err = root.backend.rename_account(card.modelData.email, nameEdit.text)
+                                                    if (err !== "") root.notice(err)
+                                                    root.reload()
+                                                }
+                                                card.editing = !card.editing
+                                            }
+                                        }
+                                        Button2 {
+                                            text: qsTr("Remove")
+                                            danger: true
+                                            onClicked: root.confirmRemove = card.modelData.email
+                                        }
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: qsTr("Incoming %1:%2 (%3)   ·   Outgoing %4:%5 (%6)")
+                                            .arg(card.modelData.imapHost).arg(card.modelData.imapPort).arg(card.modelData.imapSecurity.toUpperCase())
+                                            .arg(card.modelData.smtpHost).arg(card.modelData.smtpPort).arg(card.modelData.smtpSecurity.toUpperCase())
+                                        font.pixelSize: 12
+                                        color: Theme.textSubtle
+                                        wrapMode: Text.Wrap
+                                    }
+                                    // signature
+                                    Column {
+                                        Layout.fillWidth: true
+                                        spacing: 6
+                                        Text { text: qsTr("Signature"); font.pixelSize: 12; color: Theme.textSubtle }
+                                        Rectangle {
+                                            width: parent.width
+                                            height: Math.max(64, sigEdit.implicitHeight + 16)
+                                            radius: 8
+                                            color: Theme.window
+                                            border.color: sigEdit.activeFocus ? Theme.accent : Theme.border
+                                            TextEdit {
+                                                id: sigEdit
+                                                anchors.fill: parent
+                                                anchors.margins: 8
+                                                text: root.backend.signature(card.modelData.email)
+                                                wrapMode: TextEdit.Wrap
+                                                font.pixelSize: 13
+                                                color: Theme.text
+                                                selectByMouse: true
+                                                Text {
+                                                    visible: !sigEdit.text && !sigEdit.activeFocus
+                                                    text: qsTr("Added to new messages, replies and forwards")
+                                                    font.pixelSize: 13
+                                                    color: Theme.textMuted
+                                                }
+                                                onActiveFocusChanged: if (!activeFocus) {
+                                                    const err = root.backend.set_signature(card.modelData.email, text)
+                                                    if (err !== "") root.notice(err)
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // removal confirmation
+                                    Rectangle {
+                                        visible: root.confirmRemove === card.modelData.email
+                                        Layout.fillWidth: true
+                                        implicitHeight: confirmRow.implicitHeight + 20
+                                        radius: 8
+                                        color: Qt.rgba(1, 0.3, 0.3, 0.10)
+                                        border.color: Theme.danger
+                                        RowLayout {
+                                            id: confirmRow
+                                            anchors.fill: parent
+                                            anchors.margins: 10
+                                            spacing: 10
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: qsTr("Remove %1? Its mail is removed from this computer only; nothing is deleted on the server.").arg(card.modelData.email)
+                                                wrapMode: Text.Wrap
+                                                font.pixelSize: 13
+                                                color: Theme.text
+                                            }
+                                            Button2 { text: qsTr("Cancel"); onClicked: root.confirmRemove = "" }
+                                            Button2 {
+                                                text: qsTr("Remove account")
+                                                danger: true
+                                                onClicked: {
+                                                    const email = card.modelData.email
+                                                    const err = root.backend.remove_account(email)
+                                                    root.confirmRemove = ""
+                                                    root.reload()
+                                                    root.notice(err === "" ? qsTr("%1 removed").arg(email) : err)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ---------------- Add account
+                    ColumnLayout {
+                        id: form
+                        visible: root.page === "addAccount"
+                        Layout.fillWidth: true
+                        spacing: 12
+                        function clear() {
+                            fName.text = ""; fEmail.text = ""; fPass.text = ""
+                            fImap.text = ""; fImapPort.text = ""; fSmtp.text = ""; fSmtpPort.text = ""; fUser.text = ""
+                            root.showManual = false
+                        }
+                        readonly property string domain: fEmail.text.indexOf("@") > 0 ? fEmail.text.split("@")[1].toLowerCase() : ""
+                        readonly property bool isGmail: domain === "gmail.com" || domain === "googlemail.com"
+                        readonly property bool isMicrosoft: ["outlook.com", "hotmail.com", "live.com", "msn.com"].indexOf(domain) >= 0
+                        Title { text: qsTr("Add account") }
+                        Text {
+                            Layout.fillWidth: true
+                            text: qsTr("Enter your email and password. The mail servers are found automatically; set them yourself under Server settings if your provider needs it.")
+                            wrapMode: Text.Wrap
+                            font.pixelSize: 13
+                            color: Theme.textSubtle
+                        }
+                        Field { id: fName; label: qsTr("Your name"); placeholder: qsTr("Shown to people you write to") }
+                        Field { id: fEmail; objectName: "fieldEmail"; label: qsTr("Email address"); placeholder: "name@example.com" }
+                        Field { id: fPass; label: qsTr("Password"); secret: true; placeholder: form.isGmail ? qsTr("Google app password") : "" }
+                        Rectangle {
+                            visible: form.isGmail || form.isMicrosoft
+                            Layout.fillWidth: true
+                            implicitHeight: tip.implicitHeight + 20
+                            radius: 8
+                            color: Theme.selected
+                            Text {
+                                id: tip
+                                anchors.fill: parent
+                                anchors.margins: 10
+                                wrapMode: Text.Wrap
+                                font.pixelSize: 12
+                                color: Theme.text
+                                text: form.isGmail
+                                    ? qsTr("Gmail: use an app password, not your normal password. Create one in your Google Account under Security → 2-Step Verification → App passwords.")
+                                    : qsTr("Outlook / Hotmail: use an app password from your Microsoft account security settings, with IMAP enabled.")
+                            }
+                        }
+                        Text {
+                            text: (root.showManual ? "▾ " : "▸ ") + qsTr("Server settings")
+                            color: Theme.accent
+                            font.pixelSize: 13
+                            HoverHandler { cursorShape: Qt.PointingHandCursor }
+                            TapHandler { onTapped: root.showManual = !root.showManual }
+                        }
+                        GridLayout {
+                            visible: root.showManual
+                            Layout.fillWidth: true
+                            columns: 3
+                            columnSpacing: 10
+                            rowSpacing: 10
+                            Field { id: fImap; label: qsTr("Incoming (IMAP) server"); placeholder: "mail.example.com" }
+                            Field { id: fImapPort; label: qsTr("Port"); placeholder: imapSec.currentValue === "tls" ? "993" : "143"; Layout.preferredWidth: 90; Layout.fillWidth: false }
+                            Column {
+                                spacing: 5
+                                Text { text: qsTr("Security"); font.pixelSize: 12; color: Theme.textSubtle }
+                                ComboBox { id: imapSec; textRole: "t"; valueRole: "v"; model: [{ t: "SSL/TLS", v: "tls" }, { t: "STARTTLS", v: "starttls" }, { t: qsTr("None"), v: "none" }] }
+                            }
+                            Field { id: fSmtp; label: qsTr("Outgoing (SMTP) server"); placeholder: fImap.text || "mail.example.com" }
+                            Field { id: fSmtpPort; label: qsTr("Port"); placeholder: smtpSec.currentValue === "tls" ? "465" : "587"; Layout.preferredWidth: 90; Layout.fillWidth: false }
+                            Column {
+                                spacing: 5
+                                Text { text: qsTr("Security"); font.pixelSize: 12; color: Theme.textSubtle }
+                                ComboBox { id: smtpSec; textRole: "t"; valueRole: "v"; model: [{ t: "SSL/TLS", v: "tls" }, { t: "STARTTLS", v: "starttls" }, { t: qsTr("None"), v: "none" }] }
+                            }
+                            Field { id: fUser; label: qsTr("User name"); placeholder: fEmail.text || qsTr("Same as the email address"); Layout.columnSpan: 3 }
+                        }
+                        Text {
+                            visible: root.addError !== ""
+                            Layout.fillWidth: true
+                            text: root.addError
+                            color: Theme.danger
+                            wrapMode: Text.Wrap
+                            font.pixelSize: 13
+                        }
+                        RowLayout {
+                            spacing: 10
+                            Button2 {
+                                text: root.busyEmail !== "" ? qsTr("Checking…") : qsTr("Add account")
+                                primary: true
+                                enabled: root.busyEmail === "" && fEmail.text.indexOf("@") > 0 && fPass.text.length > 0
+                                onClicked: {
+                                    root.addError = ""
+                                    root.busyEmail = fEmail.text
+                                    const req = { email: fEmail.text, name: fName.text, password: fPass.text }
+                                    if (root.showManual && fImap.text.trim() !== "") {
+                                        Object.assign(req, {
+                                            imapHost: fImap.text, imapPort: fImapPort.text, imapSecurity: imapSec.currentValue,
+                                            smtpHost: fSmtp.text, smtpPort: fSmtpPort.text, smtpSecurity: smtpSec.currentValue,
+                                            username: fUser.text
+                                        })
+                                    }
+                                    root.backend.add_account(JSON.stringify(req))
+                                }
+                            }
+                            BusyIndicator { visible: root.busyEmail !== ""; running: visible; implicitWidth: 28; implicitHeight: 28 }
+                            Button2 { text: qsTr("Cancel"); onClicked: { root.addError = ""; root.page = "accounts" } }
+                        }
+                    }
+
+                    // ---------------- Notifications
+                    ColumnLayout {
+                        visible: root.page === "notifications"
+                        Layout.fillWidth: true
+                        spacing: 8
+                        Title { text: qsTr("Notifications") }
+                        Option {
+                            label: qsTr("New mail notifications")
+                            help: qsTr("Show a desktop notification when new mail arrives. Click it to open the conversation.")
+                            Toggle { key: "notifications" }
+                        }
+                        Option {
+                            label: qsTr("Show message preview")
+                            help: qsTr("Include the subject and the first lines. Off: only the sender is shown.")
+                            enabled: root.prefs.notifications === true
+                            opacity: enabled ? 1 : 0.5
+                            Toggle { key: "notificationPreview" }
+                        }
+                        Option {
+                            label: qsTr("Unread dot on the status-bar icon")
+                            help: qsTr("Mark the top-bar icon while the inbox has unread mail.")
+                            Toggle { key: "trayUnreadDot" }
+                        }
+                    }
+
+                    // ---------------- Appearance
+                    ColumnLayout {
+                        visible: root.page === "appearance"
+                        Layout.fillWidth: true
+                        spacing: 8
+                        Title { text: qsTr("Appearance") }
+                        Option {
+                            label: qsTr("Theme")
+                            help: qsTr("Follow the system theme (changes with it), or always use light or dark.")
+                            Choice { key: "themeMode"; values: ["system", "light", "dark"]; labels: [qsTr("System"), qsTr("Light"), qsTr("Dark")] }
+                        }
+                        Option {
+                            label: qsTr("List density")
+                            help: qsTr("Compact fits more conversations on the screen.")
+                            Choice { key: "density"; values: ["comfortable", "compact"]; labels: [qsTr("Comfortable"), qsTr("Compact")] }
+                        }
+                        Option {
+                            label: qsTr("Show avatars")
+                            help: qsTr("Coloured initials next to each conversation.")
+                            Toggle { key: "showAvatars" }
+                        }
+                        Option {
+                            label: qsTr("Show preview text")
+                            help: qsTr("A line of the message under the subject.")
+                            Toggle { key: "showPreview" }
+                        }
+                    }
+
+                    // ---------------- Shortcuts
+                    ColumnLayout {
+                        visible: root.page === "shortcuts"
+                        Layout.fillWidth: true
+                        spacing: 4
+                        Title { text: qsTr("Keyboard shortcuts") }
+                        Repeater {
+                            model: [
+                                ["J / ↓", qsTr("Next conversation")], ["K / ↑", qsTr("Previous conversation")],
+                                ["Enter / O", qsTr("Open")], ["Esc", qsTr("Close / cancel selection")],
+                                ["X", qsTr("Select the focused conversation")], ["Ctrl+A", qsTr("Select all")],
+                                ["Shift+click", qsTr("Select a range")], ["Ctrl+click", qsTr("Add to the selection")],
+                                ["E", qsTr("Done")], ["P", qsTr("Pin / unpin")], ["S", qsTr("Snooze")],
+                                ["U", qsTr("Mark read / unread")], ["#, Delete", qsTr("Delete")], ["!", qsTr("Spam")],
+                                ["Z / Ctrl+Z", qsTr("Undo")], ["Ctrl+,", qsTr("Settings")]
+                            ]
+                            delegate: RowLayout {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                spacing: 14
+                                Rectangle {
+                                    Layout.preferredWidth: 120
+                                    implicitHeight: 28
+                                    radius: 6
+                                    color: Theme.surface
+                                    border.color: Theme.border
+                                    Text { anchors.centerIn: parent; text: modelData[0]; font.pixelSize: 12; font.weight: Font.DemiBold; color: Theme.text }
+                                }
+                                Text { Layout.fillWidth: true; text: modelData[1]; font.pixelSize: 14; color: Theme.text }
+                            }
+                        }
+                    }
+
+                    // ---------------- About
+                    ColumnLayout {
+                        visible: root.page === "about"
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Image {
+                            Layout.preferredWidth: 96
+                            Layout.preferredHeight: 96
+                            sourceSize: Qt.size(192, 192)
+                            source: "qrc:/qt/qml/org/rustyinbox/icons/app.png"
+                        }
+                        Title { text: root.backend.app_name() }
+                        Text { text: qsTr("Version %1").arg(root.backend.version()); color: Theme.textMuted; font.pixelSize: 13 }
+                        Text {
+                            Layout.fillWidth: true
+                            text: qsTr("A fast, native email client. The mail engine is written in Rust; the interface is Qt / QML and follows your system theme.")
+                            wrapMode: Text.Wrap
+                            font.pixelSize: 14
+                            color: Theme.text
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

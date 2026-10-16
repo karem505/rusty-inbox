@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Rusty Inbox
+GenericName=Email Client
+Comment=Fast native email client built with Rust and Qt/QML
+Exec=rusty-inbox
+Icon=rusty-inbox
+Terminal=false
+Categories=Network;Email;Qt;
+Keywords=email;mail;inbox;imap;smtp;rust;qt;
+StartupNotify=true
+StartupWMClass=rusty-inbox
