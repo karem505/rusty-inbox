@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.karem505.RustyInbox</id>
+  <id>io.github.karem505.rusty-inbox</id>
   <name>Rusty Inbox</name>
   <summary>Fast native email client</summary>
   <developer id="io.github.karem505">
@@ -25,7 +25,7 @@
       <li>Import of accounts from Thunderbird</li>
     </ul>
   </description>
-  <launchable type="desktop-id">io.github.karem505.RustyInbox.desktop</launchable>
+  <launchable type="desktop-id">io.github.karem505.rusty-inbox.desktop</launchable>
   <url type="homepage">https://github.com/karem505/rusty-inbox</url>
   <url type="bugtracker">https://github.com/karem505/rusty-inbox/issues</url>
   <url type="vcs-browser">https://github.com/karem505/rusty-inbox</url>

@@ -5,7 +5,7 @@
 set -eu
 
 REPO="karem505/rusty-inbox"
-APP_ID="io.github.karem505.RustyInbox"
+APP_ID="io.github.karem505.rusty-inbox"
 PREFIX="${PREFIX:-$HOME/.local}"
 LIB_DIR="$PREFIX/lib/rusty-inbox"
 BIN_DIR="$PREFIX/bin"

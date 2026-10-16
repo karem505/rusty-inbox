@@ -28,30 +28,30 @@ Docs checked: <https://docs.flathub.org/docs/for-app-authors/submission> and `/r
 
 ```sh
 gh repo fork --clone flathub/flathub && cd flathub && git checkout --track origin/new-pr
-git checkout -b add-io.github.karem505.RustyInbox new-pr
+git checkout -b add-io.github.karem505.rusty-inbox new-pr
 ```
 
 Add the files at the root of the branch (no subfolder):
 
 ```sh
-cp <rusty-inbox>/packaging/flatpak/flathub/io.github.karem505.RustyInbox.yml .
+cp <rusty-inbox>/packaging/flatpak/flathub/io.github.karem505.rusty-inbox.yml .
 cp <rusty-inbox>/packaging/flatpak/cargo-sources.json .
 # edit the manifest: commit: <full SHA of v0.1.0>
-git add io.github.karem505.RustyInbox.yml cargo-sources.json
-git commit -m "Add io.github.karem505.RustyInbox" && git push -u origin HEAD
+git add io.github.karem505.rusty-inbox.yml cargo-sources.json
+git commit -m "Add io.github.karem505.rusty-inbox" && git push -u origin HEAD
 ```
 
 Open the PR in the **web UI** against base branch **`new-pr`** (not `master`), title:
-`Add io.github.karem505.RustyInbox`, fill in Flathub's PR template by hand. After review, comment `bot, build`
-to start a test build. On acceptance you get an invite to `flathub/io.github.karem505.RustyInbox` (enable 2FA;
+`Add io.github.karem505.rusty-inbox`, fill in Flathub's PR template by hand. After review, comment `bot, build`
+to start a test build. On acceptance you get an invite to `flathub/io.github.karem505.rusty-inbox` (enable 2FA;
 accept within a week), then verify the app id (Developer Portal; `io.github.karem505` is verified through the
 GitHub login method).
 
 ## Local checks before opening the PR
 
 ```sh
-flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest io.github.karem505.RustyInbox.yml
-flatpak run --command=flathub-build org.flatpak.Builder --install io.github.karem505.RustyInbox.yml
+flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest io.github.karem505.rusty-inbox.yml
+flatpak run --command=flathub-build org.flatpak.Builder --install io.github.karem505.rusty-inbox.yml
 flatpak run --command=flatpak-builder-lint org.flatpak.Builder repo repo
 ```
 

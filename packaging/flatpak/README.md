@@ -1,12 +1,12 @@
 # Flatpak packaging
 
-App id `io.github.karem505.RustyInbox`, runtime `org.kde.Platform//6.11` with the
+App id `io.github.karem505.rusty-inbox`, runtime `org.kde.Platform//6.11` with the
 `io.qt.qtwebengine.BaseApp//6.11` base app and the `rust-stable` (25.08) SDK extension.
 
 | File | Purpose |
 |---|---|
-| `io.github.karem505.RustyInbox.yml` | Manifest for local and CI builds (builds the surrounding checkout) |
-| `flathub/io.github.karem505.RustyInbox.yml` | Flathub variant: same build, source fetched from the git tag |
+| `io.github.karem505.rusty-inbox.yml` | Manifest for local and CI builds (builds the surrounding checkout) |
+| `flathub/io.github.karem505.rusty-inbox.yml` | Flathub variant: same build, source fetched from the git tag |
 | `cargo-sources.json` | Offline crate sources generated from `Cargo.lock` |
 | `*.metainfo.xml`, `*.desktop` | AppStream metadata and launcher |
 
@@ -15,8 +15,8 @@ App id `io.github.karem505.RustyInbox`, runtime `org.kde.Platform//6.11` with th
 ```sh
 flatpak install --user flathub org.flatpak.Builder
 flatpak run org.flatpak.Builder --user --install --force-clean --install-deps-from=flathub \
-  build-dir packaging/flatpak/io.github.karem505.RustyInbox.yml
-flatpak run io.github.karem505.RustyInbox
+  build-dir packaging/flatpak/io.github.karem505.rusty-inbox.yml
+flatpak run io.github.karem505.rusty-inbox
 ```
 
 ## Regenerate `cargo-sources.json` (after every `Cargo.lock` change)
@@ -31,7 +31,7 @@ curl -L -o /tmp/flatpak-cargo-generator.py \
 ## Bundle
 
 ```sh
-flatpak build-bundle repo rusty-inbox-0.1.0-x86_64.flatpak io.github.karem505.RustyInbox
+flatpak build-bundle repo rusty-inbox-0.1.0-x86_64.flatpak io.github.karem505.rusty-inbox
 ```
 
 The `Flatpak` workflow does this on every `v*` tag and attaches the bundle to the release.

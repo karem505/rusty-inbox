@@ -4,13 +4,13 @@ Name=Rusty Inbox
 GenericName=Email Client
 Comment=Fast native email client built with Rust and Qt/QML
 Exec=rusty-inbox %u
-Icon=io.github.karem505.RustyInbox
+Icon=io.github.karem505.rusty-inbox
 Terminal=false
 Categories=Network;Email;Qt;
 Keywords=email;mail;inbox;imap;smtp;rust;qt;
 MimeType=x-scheme-handler/mailto;
 StartupNotify=true
-StartupWMClass=io.github.karem505.RustyInbox
+StartupWMClass=io.github.karem505.rusty-inbox
 Actions=compose;
 
 [Desktop Action compose]
