@@ -1,0 +1,26 @@
+# Maintainer: Karem Aboelmakarem <karem505 at github>
+pkgname=rusty-inbox-bin
+_pkgname=rusty-inbox
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Fast native email client: Rust IMAP/SMTP engine, Qt 6 QML interface (prebuilt binary)"
+arch=('x86_64')
+url="https://github.com/karem505/rusty-inbox"
+license=('MIT OR Apache-2.0')
+depends=('qt6-base' 'qt6-declarative' 'qt6-webengine' 'qt6-svg' 'gcc-libs' 'glibc' 'hicolor-icon-theme')
+optdepends=('xdg-utils: open links and make Rusty Inbox the mailto handler')
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+options=('!strip' '!debug')
+source=("$_pkgname-$pkgver-linux-x86_64.tar.gz::$url/releases/download/v$pkgver/$_pkgname-$pkgver-linux-x86_64.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+  cd "$_pkgname-$pkgver-linux-x86_64"
+  install -Dm755 rusty-inbox "$pkgdir/usr/bin/rusty-inbox"
+  install -Dm644 rusty-inbox.desktop "$pkgdir/usr/share/applications/rusty-inbox.desktop"
+  for s in 16 22 24 32 48 64 96 128 256 512; do
+    install -Dm644 "icons/rusty-inbox-$s.png" "$pkgdir/usr/share/icons/hicolor/${s}x${s}/apps/rusty-inbox.png"
+  done
+  install -Dm644 LICENSE-MIT LICENSE-APACHE -t "$pkgdir/usr/share/licenses/$pkgname/"
+}
