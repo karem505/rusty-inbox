@@ -50,6 +50,13 @@ const ICONS: [&str; 46] = [
 ];
 
 fn main() {
+    // Windows: embed the application icon into the .exe
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        #[cfg(windows)]
+        embed_resource::compile("packaging/windows/rusty-inbox.rc", embed_resource::NONE)
+            .manifest_required()
+            .unwrap();
+    }
     let mut icons: Vec<String> = ICONS.iter().map(|n| format!("icons/{n}.svg")).collect();
     icons.push("icons/app.png".into());
     CxxQtBuilder::new_qml_module(QmlModule::new("org.rustyinbox").qml_files([
