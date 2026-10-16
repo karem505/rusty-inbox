@@ -73,8 +73,22 @@ ApplicationWindow {
         }
     }
 
+    // the inbox can keep Done conversations (Settings or the eye button above the list)
+    readonly property bool showDoneView: spec.list === "inbox" && !spec.folder && prefs.showDoneInInbox === true
+    function toggleShowDone() {
+        const on = !(prefs.showDoneInInbox === true)
+        const err = backend.set_setting("showDoneInInbox", JSON.stringify(on))
+        if (err !== "") { toast.show(err, false); return }
+        prefs = JSON.parse(backend.settings_json())
+        reload()
+        toast.show(on ? qsTr("Showing Done mail in the Inbox") : qsTr("Done mail hidden from the Inbox"), false)
+    }
+    function isDone(id) { const t = threads.find(x => x.id === id); return !!(t && t.done) }
+
     function reload() {
-        const all = JSON.parse(backend.threads_json(JSON.stringify(spec), 500))
+        const query = Object.assign({}, spec)
+        if (showDoneView) query.showDone = true
+        const all = JSON.parse(backend.threads_json(JSON.stringify(query), 500))
         threads = all.filter(t => !hidden[t.id])
         sidebarModel = JSON.parse(backend.sidebar_json())
     }
@@ -125,7 +139,21 @@ ApplicationWindow {
     function perform(action, ids, until, label, silent) {
         ids = (ids || []).filter(i => i >= 0)
         if (!ids.length) return
+        // Done on conversations that are already Done brings them back to the inbox
+        if (action === "done" && ids.every(i => isDone(i))) action = "undone"
         const msg = label || labelFor(action, ids.length)
+        // in the inbox with Done shown, Done / Not done only change the check mark
+        if (showDoneView && (action === "done" || action === "undone") && backend.is_deferred(action)) {
+            const set = {}
+            for (const i of ids) set[i] = true
+            threads = threads.map(t => set[t.id] ? Object.assign({}, t, { done: action === "done" }) : t)
+            const entry = { kind: "deferred", action: action, ids: ids, until: 0, due: Date.now() + undoMs, keep: true }
+            pending = pending.concat([entry])
+            undoStack = undoStack.concat([entry])
+            threadList.clearSelection()
+            if (!silent) toast.show(msg, true)
+            return
+        }
         if (backend.is_deferred(action)) {
             if (openId >= 0 && ids.indexOf(openId) >= 0) {
                 const next = threadList.neighbourOf(openId)
@@ -186,7 +214,10 @@ ApplicationWindow {
             if (all) backend.act_now(p.action, JSON.stringify(p.ids), p.until)
             else backend.act(p.action, JSON.stringify(p.ids), p.until)
         }
+        // a moved conversation shows again once its new folder has synced
+        if (due.some(p => p.keep)) resyncSoon.restart()
     }
+    Timer { id: resyncSoon; interval: 2500; onTriggered: backend.sync_now() }
     Timer { interval: 250; repeat: true; running: win.pending.length > 0; onTriggered: win.commitDue(false) }
 
     // Closing the window keeps the app in the status bar (sync and notifications continue);
@@ -345,6 +376,7 @@ ApplicationWindow {
     Shortcut { sequences: ["Up", "K"]; enabled: win.keysOn; onActivated: { if (threadList.moveFocus(-1) && win.openId >= 0) win.openThread(threadList.focusedId()) } }
     Shortcut { sequences: ["Return", "O"]; enabled: win.keysOn; onActivated: win.openThread(threadList.focusedId()) }
     Shortcut { sequence: "E"; enabled: win.keysOn; onActivated: win.perform(win.spec.list === "done" ? "undone" : "done", threadList.targetIds()) }
+    Shortcut { sequence: "Shift+E"; enabled: win.keysOn; onActivated: win.toggleShowDone() }
     Shortcut { sequences: ["#", "Delete"]; enabled: win.keysOn; onActivated: win.perform(win.spec.list === "trash" ? "permanentDelete" : "moveToTrash", threadList.targetIds()) }
     Shortcut { sequence: "!"; enabled: win.keysOn; onActivated: win.perform("markAsSpam", threadList.targetIds()) }
     Shortcut {
@@ -411,6 +443,9 @@ ApplicationWindow {
                 compact: win.prefs.density === "compact"
                 showAvatars: win.prefs.showAvatars !== false
                 showPreview: win.prefs.showPreview !== false
+                canShowDone: win.spec.list === "inbox" && !win.spec.folder
+                showDone: win.showDoneView
+                onToggleShowDone: win.toggleShowDone()
                 openId: win.openId
                 onOpen: (id) => win.openThread(id)
                 onAction: (name, ids) => win.perform(name, ids)
@@ -606,7 +641,13 @@ ApplicationWindow {
             case 66: win.log("templates page " + settingsPage.templates.length); win.shot("25-templates"); settingsPage.closed(); break
             case 67: win.handleRequest("mailto:someone@example.org?subject=From%20a%20link&body=Hi"); break
             case 68: win.log("mailto composer " + composerLoader.active + " " + JSON.stringify(composerLoader.item.draft.to) + " " + composerLoader.item.draft.subject); win.shot("26-mailto"); break
-            case 69: console.warn("AUTOTEST end"); Qt.quit(); break
+            case 69: composerLoader.item.discard(); win.select({ list: "inbox" }); break
+            case 70: win.log("inbox before show-done " + win.threads.length); win.toggleShowDone(); break
+            case 71: win.log("inbox with done " + win.threads.length + " done rows " + win.threads.filter(t => t.done).length); win.shot("27-show-done"); break
+            case 72: { const d = win.threads.find(t => t.done); if (d) { win.picked.d = d.id; win.perform("done", [d.id]) } break }
+            case 73: win.log("done row toggled back (pending) " + (win.picked.d ? !win.isDone(win.picked.d) : "none")); win.undo(); break
+            case 74: win.log("after undo still done " + (win.picked.d ? win.isDone(win.picked.d) : "none")); win.toggleShowDone(); break
+            case 75: win.log("inbox hidden done again " + win.threads.length); console.warn("AUTOTEST end"); Qt.quit(); break
             }
         }
     }

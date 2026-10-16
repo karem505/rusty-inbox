@@ -92,9 +92,10 @@ Rectangle {
             IconButton { icon: "back"; tip: qsTr("Close (Esc)"); onClicked: root.close() }
             Rectangle { width: 1; height: 22; color: Theme.border; anchors.verticalCenter: parent.verticalCenter }
             IconButton {
-                icon: root.listName === "done" ? "inbox" : "done"
-                tip: root.listName === "done" ? qsTr("Not done") : qsTr("Done (E)")
-                onClicked: root.action(root.listName === "done" ? "undone" : "done")
+                readonly property bool isDone: root.listName === "done" || !!(root.thread && root.thread.done)
+                icon: isDone ? "inbox" : "done"
+                tip: isDone ? qsTr("Not done (E)") : qsTr("Done (E)")
+                onClicked: root.action(isDone ? "undone" : "done")
             }
             IconButton {
                 icon: "pin"

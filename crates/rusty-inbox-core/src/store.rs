@@ -235,14 +235,20 @@ pub struct MessageRow {
     pub attachments: Vec<(i64, String, String, i64, bool)>,
 }
 
+/// SQL: thread `t` is Done (flagged, or no message of it is left in an inbox folder).
+const DONE_EXPR: &str = "(t.done=1 OR NOT EXISTS (SELECT 1 FROM messages i JOIN folders fi ON fi.id=i.folder_id \
+     WHERE i.thread_id=t.id AND fi.role='inbox'))";
+
 /// Which messages a list shows.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ListFilter {
-    /// inbox of one account or all (`None`); `done` selects Done vs not-done threads.
+    /// inbox of one account or all (`None`); `done` selects Done threads (marked done, or moved
+    /// out of the inbox to Archive) instead of the inbox. `with_done` shows both together.
     Inbox {
         account: Option<String>,
         done: bool,
         category: Option<String>,
+        with_done: bool,
     },
     /// a role folder (sent/drafts/trash/spam/archive) across accounts or one account.
     Role {
@@ -618,9 +624,14 @@ impl Store {
     pub fn thread_rows(&self, filter: &ListFilter, limit: usize) -> CoreResult<Vec<ThreadRow>> {
         let db = self.db.lock();
         let (cond, arg): (String, Option<String>) = match filter {
-            ListFilter::Inbox { account, done, category } => {
-                let mut c =
-                    format!("f.role='inbox' AND t.done={} AND t.snoozed_until IS NULL", if *done { 1 } else { 0 });
+            ListFilter::Inbox { account, done, category, with_done } => {
+                let mut c = if *with_done {
+                    "f.role IN ('inbox','archive') AND t.snoozed_until IS NULL".to_string()
+                } else if *done {
+                    format!("f.role IN ('inbox','archive') AND {DONE_EXPR} AND t.snoozed_until IS NULL")
+                } else {
+                    "f.role='inbox' AND t.done=0 AND t.snoozed_until IS NULL".to_string()
+                };
                 if let Some(cat) = category {
                     c += &format!(" AND m.category='{}'", cat.replace('\'', ""));
                 }
@@ -636,10 +647,12 @@ impl Store {
             }
             ListFilter::Query(q) => (query_condition(q), None),
         };
+        // in inbox lists a conversation is Done when marked so or when none of it is in the inbox
+        let done_col = if matches!(filter, ListFilter::Inbox { .. }) { DONE_EXPR } else { "t.done" };
         let sql = format!(
             "SELECT t.id, t.account, t.subject, MAX(m.date_ms),
                     (SELECT COUNT(DISTINCT COALESCE(q.message_id, q.id)) FROM messages q WHERE q.thread_id=t.id), MIN(m.seen), MAX(m.flagged),
-                    MAX(m.has_attachments), t.pinned, t.done,
+                    MAX(m.has_attachments), t.pinned, {done_col},
                     (SELECT preview FROM messages x WHERE x.thread_id=t.id ORDER BY x.date_ms DESC LIMIT 1),
                     (SELECT json_group_array(json_array(from_name, from_addr)) FROM
                         (SELECT DISTINCT from_name, from_addr FROM messages y WHERE y.thread_id=t.id ORDER BY y.date_ms)),
@@ -1344,7 +1357,9 @@ mod tests {
         // idempotent
         s.insert_message(&msg(inbox, 3, "<d@x>", None, "Other", 1500)).unwrap();
 
-        let rows = s.thread_rows(&ListFilter::Inbox { account: None, done: false, category: None }, 50).unwrap();
+        let rows = s
+            .thread_rows(&ListFilter::Inbox { account: None, done: false, category: None, with_done: false }, 50)
+            .unwrap();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].subject, "Hello");
         assert_eq!(rows[0].message_count, 3);
@@ -1353,7 +1368,9 @@ mod tests {
         assert_eq!(s.thread_messages(rows[0].thread_id).unwrap().len(), 3);
 
         s.set_thread_flag(rows[0].thread_id, "done", true).unwrap();
-        let rows2 = s.thread_rows(&ListFilter::Inbox { account: None, done: false, category: None }, 50).unwrap();
+        let rows2 = s
+            .thread_rows(&ListFilter::Inbox { account: None, done: false, category: None, with_done: false }, 50)
+            .unwrap();
         assert_eq!(rows2.len(), 1);
         assert_eq!(rows2[0].subject, "Other");
 
@@ -1364,13 +1381,39 @@ mod tests {
     }
 
     #[test]
+    fn done_mail_in_archive_stays_reachable() {
+        let s = Store::in_memory().unwrap();
+        acct(&s);
+        let inbox = s.upsert_folder("user@example.com", "INBOX", "Inbox", Some("/"), Some("inbox"), true).unwrap();
+        let archive =
+            s.upsert_folder("user@example.com", "Archive", "Archive", Some("/"), Some("archive"), true).unwrap();
+        s.insert_message(&msg(inbox, 1, "<a@x>", None, "Still here", 1000)).unwrap();
+        // marked Done here and moved to Archive by the server: only the archive copy is left
+        s.insert_message(&msg(archive, 2, "<b@x>", None, "Handled", 2000)).unwrap();
+        // a conversation with one message archived and a newer reply in the inbox is not Done
+        s.insert_message(&msg(archive, 3, "<c@x>", None, "Ongoing", 500)).unwrap();
+        s.insert_message(&msg(inbox, 4, "<d@x>", Some("<c@x>"), "Re: Ongoing", 3000)).unwrap();
+        let f = |done, with_done| ListFilter::Inbox { account: None, done, category: None, with_done };
+        let subjects = |rows: Vec<ThreadRow>| rows.into_iter().map(|r| (r.subject, r.done)).collect::<Vec<_>>();
+        assert_eq!(
+            subjects(s.thread_rows(&f(false, false), 50).unwrap()),
+            vec![("Ongoing".to_string(), false), ("Still here".to_string(), false)]
+        );
+        assert_eq!(subjects(s.thread_rows(&f(true, false), 50).unwrap()), vec![("Handled".to_string(), true)]);
+        assert_eq!(
+            subjects(s.thread_rows(&f(false, true), 50).unwrap()),
+            vec![("Ongoing".to_string(), false), ("Handled".to_string(), true), ("Still here".to_string(), false)]
+        );
+    }
+
+    #[test]
     fn snooze_hides_until_due_then_returns_unread() {
         let s = Store::in_memory().unwrap();
         acct(&s);
         let inbox = s.upsert_folder("user@example.com", "INBOX", "Inbox", Some("/"), Some("inbox"), true).unwrap();
         s.insert_message(&msg(inbox, 1, "<a@x>", None, "Snooze me", 1000)).unwrap();
         s.insert_message(&msg(inbox, 2, "<b@x>", None, "Stay", 2000)).unwrap();
-        let inbox_f = ListFilter::Inbox { account: None, done: false, category: None };
+        let inbox_f = ListFilter::Inbox { account: None, done: false, category: None, with_done: false };
         let rows = s.thread_rows(&inbox_f, 50).unwrap();
         let tid = rows.iter().find(|r| r.subject == "Snooze me").unwrap().thread_id;
         s.set_thread_seen(tid, true).unwrap();
@@ -1401,7 +1444,9 @@ mod tests {
             s.insert_message(&m).unwrap();
         }
         s.insert_message(&msg(drafts, 9, "<d@x>", None, "Draft", 9000)).unwrap();
-        let rows = s.thread_rows(&ListFilter::Inbox { account: None, done: false, category: None }, 50).unwrap();
+        let rows = s
+            .thread_rows(&ListFilter::Inbox { account: None, done: false, category: None, with_done: false }, 50)
+            .unwrap();
         let by = |subj: &str| rows.iter().find(|r| r.subject == subj).unwrap().thread_id;
         s.set_thread_seen(by("S2"), true).unwrap();
         s.set_thread_flag(by("S1"), "pinned", true).unwrap();
@@ -1412,6 +1457,7 @@ mod tests {
             account: None,
             done: false,
             category: category.map(str::to_string),
+            with_done: false,
         };
         assert_eq!(c.inbox_unread, s.count_unseen(&inbox_f(None)).unwrap());
         assert_eq!(c.inbox_unread, 2);

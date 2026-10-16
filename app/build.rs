@@ -1,6 +1,6 @@
 use cxx_qt_build::{CxxQtBuilder, QmlFile, QmlModule};
 
-const ICONS: [&str; 44] = [
+const ICONS: [&str; 46] = [
     "account",
     "archive",
     "back",
@@ -17,6 +17,8 @@ const ICONS: [&str; 44] = [
     "done",
     "drafts",
     "expand",
+    "eye",
+    "eye-off",
     "folder",
     "forward",
     "inbox",

@@ -16,6 +16,7 @@ pub fn defaults() -> Value {
         "undoSeconds": 5,            // how long Done / Delete / Snooze can be undone
         "syncMinutes": 1,            // how often to check for new mail
         "closeToTray": true,         // the close button keeps the app in the status bar
+        "showDoneInInbox": false,    // keep Done conversations in the inbox, marked with a check
         // appearance
         "themeMode": "system",       // follow the system theme, or force light / dark
         "density": "comfortable",    // row height of the conversation list

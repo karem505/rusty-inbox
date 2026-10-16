@@ -326,7 +326,7 @@ pub fn on_new_mail(show: impl Fn(NewMail) + Send + Sync + 'static) {
 /// after the undo window, because once moved the messages are gone from the local store until
 /// the destination folder syncs (so an inverse action could not bring them back right away).
 pub fn is_deferred(action: &str) -> bool {
-    matches!(action, "done" | "archive" | "moveToTrash" | "markAsSpam" | "permanentDelete")
+    matches!(action, "done" | "undone" | "archive" | "moveToTrash" | "markAsSpam" | "permanentDelete")
 }
 
 /// Inverse of an immediate action, for undo. Deferred actions are undone by cancelling them.
@@ -338,7 +338,6 @@ pub fn inverse_of(action: &str) -> Option<&'static str> {
         "markAsUnseen" => "markAsSeen",
         "snooze" => "unsnooze",
         "unsnooze" => "snooze",
-        "undone" => "done",
         "moveToInbox" => "archive",
         _ => return None,
     })
@@ -354,6 +353,8 @@ pub struct ListSpec {
     pub account: Option<String>,
     pub category: Option<String>,
     pub folder: Option<i64>,
+    /// inbox only: also show Done conversations (marked with `done`)
+    pub show_done: bool,
 }
 
 impl ListSpec {
@@ -369,6 +370,7 @@ impl ListSpec {
             account: opt("account"),
             category: opt("category"),
             folder: v["folder"].as_i64(),
+            show_done: v["showDone"].as_bool().unwrap_or(false),
         }
     }
 
@@ -378,11 +380,11 @@ impl ListSpec {
         }
         let account = self.account.clone();
         match self.list.as_str() {
-            "done" => ListFilter::Inbox { account, done: true, category: None },
+            "done" => ListFilter::Inbox { account, done: true, category: None, with_done: false },
             "pinned" => ListFilter::Pinned,
             "snoozed" => ListFilter::Snoozed { account },
             "sent" | "drafts" | "trash" | "spam" | "archive" => ListFilter::Role { account, role: self.list.clone() },
-            _ => ListFilter::Inbox { account, done: false, category: self.category.clone() },
+            _ => ListFilter::Inbox { account, done: false, category: self.category.clone(), with_done: self.show_done },
         }
     }
 }
@@ -687,9 +689,16 @@ mod tests {
         assert!(matches!(filter_for("sent"), ListFilter::Role { ref role, .. } if role == "sent"));
         assert!(matches!(filter_for("whatever"), ListFilter::Inbox { done: false, .. }));
         let f = filter_for(r#"{"list":"inbox","account":"u@example.com","category":"notifications"}"#);
-        assert!(matches!(f, ListFilter::Inbox { account: Some(ref a), category: Some(ref c), done: false }
-            if a == "u@example.com" && c == "notifications"));
+        assert!(
+            matches!(f, ListFilter::Inbox { account: Some(ref a), category: Some(ref c), done: false, with_done: false }
+            if a == "u@example.com" && c == "notifications")
+        );
         assert!(matches!(filter_for(r#"{"list":"inbox","folder":12}"#), ListFilter::Folder(12)));
+        assert!(matches!(
+            filter_for(r#"{"list":"inbox","showDone":true}"#),
+            ListFilter::Inbox { with_done: true, done: false, .. }
+        ));
+        assert!(matches!(filter_for("inbox"), ListFilter::Inbox { with_done: false, .. }));
         assert!(matches!(filter_for(r#"{"list":"sent","account":""}"#), ListFilter::Role { account: None, .. }));
     }
 
@@ -719,7 +728,7 @@ mod tests {
 
     #[test]
     fn undo_rules() {
-        for a in ["done", "archive", "moveToTrash", "markAsSpam", "permanentDelete"] {
+        for a in ["done", "undone", "archive", "moveToTrash", "markAsSpam", "permanentDelete"] {
             assert!(is_deferred(a), "{a}");
             assert_eq!(inverse_of(a), None, "{a}");
         }

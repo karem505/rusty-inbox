@@ -527,7 +527,8 @@ impl Engine {
     }
 
     fn report_new_mail(&self, email: &str, before: Option<i64>) {
-        let filter = ListFilter::Inbox { account: Some(email.to_string()), done: false, category: None };
+        let filter =
+            ListFilter::Inbox { account: Some(email.to_string()), done: false, category: None, with_done: false };
         let rows = self.inner.store.thread_rows(&filter, 20).unwrap_or_default();
         let newest = rows.iter().map(|r| r.last_ms).max().unwrap_or(0);
         self.inner.high_water.lock().insert(email.to_string(), newest.max(before.unwrap_or(0)));
@@ -595,13 +596,13 @@ mod tests {
             })
             .unwrap();
         }
-        let f = ListFilter::Inbox { account: None, done: false, category: None };
+        let f = ListFilter::Inbox { account: None, done: false, category: None, with_done: false };
         let ids = s.thread_rows(&f, 10).unwrap().iter().map(|r| r.thread_id).collect();
         (e, dir, ids)
     }
 
     fn inbox(e: &Engine) -> Vec<i64> {
-        let f = ListFilter::Inbox { account: None, done: false, category: None };
+        let f = ListFilter::Inbox { account: None, done: false, category: None, with_done: false };
         e.store().thread_rows(&f, 10).unwrap().iter().map(|r| r.thread_id).collect()
     }
 
