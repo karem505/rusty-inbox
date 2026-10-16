@@ -58,7 +58,7 @@ flatpak run --command=flatpak-builder-lint org.flatpak.Builder repo repo
 - `--share=ipc`, `--socket=wayland`, `--socket=fallback-x11`, `--device=dri`: GUI and GPU-accelerated Qt Quick / QtWebEngine.
 - `--talk-name=org.freedesktop.Notifications`: new-mail notifications (notify-rust).
 - `--talk-name=org.kde.StatusNotifierWatcher`: tray icon (Qt.labs.platform SystemTrayIcon uses StatusNotifierItem).
-- `--filesystem=xdg-state/omarchy:ro`: the app follows the Omarchy desktop theme by reading
+- `--filesystem=~/.local/state/omarchy:ro`: the app follows the Omarchy desktop theme by reading
   `~/.local/state/omarchy/current/theme/colors.toml`. No XDG portal exposes this file.
   Read-only, one directory. Without it the app falls back to a built-in palette.
 - `--filesystem=~/.thunderbird:ro` and `~/.var/app/org.mozilla.thunderbird:ro`: the "Import from Thunderbird" feature

@@ -38,7 +38,7 @@ The `Flatpak` workflow does this on every `v*` tag and attaches the bundle to th
 
 ## Permissions
 
-- `--filesystem=xdg-state/omarchy:ro`: read the Omarchy theme colours (`current/theme/colors.toml`).
+- `--filesystem=~/.local/state/omarchy:ro`: read the Omarchy theme colours (`current/theme/colors.toml`).
 - `--filesystem=~/.thunderbird:ro`, `~/.var/app/org.mozilla.thunderbird:ro`: one-off Thunderbird import.
 - `--talk-name=org.kde.StatusNotifierWatcher`: tray icon. `--talk-name=org.freedesktop.Notifications`: new-mail notifications.
 
