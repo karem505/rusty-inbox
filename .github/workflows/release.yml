@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: ["v*"]
+    branches: [ci-release]   # TEMP: iteration
   workflow_dispatch:
     inputs:
       version:
@@ -25,7 +26,9 @@ jobs:
     steps:
       - id: v
         run: |
-          if [ "${GITHUB_REF_TYPE}" = tag ]; then v="${GITHUB_REF_NAME#v}"; else v="${{ github.event.inputs.version }}"; fi
+          v="${{ github.event.inputs.version }}"
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then v="${GITHUB_REF_NAME#v}"; fi
+          [ -n "$v" ] || v=0.1.0
           v="${v#v}"
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
