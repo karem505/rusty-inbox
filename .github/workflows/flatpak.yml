@@ -3,6 +3,7 @@ name: Flatpak
 on:
   push:
     tags: ["v*"]
+    branches: [flatpak]  # TEMP: lets the PR branch build before the workflow exists on main
   workflow_dispatch:
 
 permissions:
