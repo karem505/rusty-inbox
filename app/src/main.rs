@@ -12,6 +12,17 @@ pub const APP_ID: &str = "rusty-inbox";
 use cxx_qt_lib::{QFont, QGuiApplication, QQmlApplicationEngine, QString, QUrl};
 
 fn main() {
+    if std::env::args().any(|a| a == "--version" || a == "-V") {
+        println!("{APP_ID} {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    if std::env::args().any(|a| a == "--help" || a == "-h") {
+        println!(
+            "{APP_NAME} {}\n\nUsage: {APP_ID} [mailto:URL] [--compose] [--import-thunderbird[=EMAILS]] [--add-account=FILE] [--version]",
+            env!("CARGO_PKG_VERSION")
+        );
+        return;
+    }
     let filter = std::env::var("RUSTY_INBOX_LOG").unwrap_or_else(|_| "info".into());
     let _ = tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).try_init();
 
