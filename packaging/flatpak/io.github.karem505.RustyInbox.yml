@@ -19,7 +19,6 @@ finish-args:
   - --talk-name=org.kde.StatusNotifierWatcher
   - --filesystem=~/.local/state/omarchy:ro
   - --filesystem=~/.thunderbird:ro
-  - --filesystem=~/.var/app/org.mozilla.thunderbird:ro
 cleanup-commands:
   - /app/cleanup-BaseApp.sh
 modules:

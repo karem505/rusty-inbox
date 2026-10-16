@@ -39,7 +39,7 @@ The `Flatpak` workflow does this on every `v*` tag and attaches the bundle to th
 ## Permissions
 
 - `--filesystem=~/.local/state/omarchy:ro`: read the Omarchy theme colours (`current/theme/colors.toml`).
-- `--filesystem=~/.thunderbird:ro`, `~/.var/app/org.mozilla.thunderbird:ro`: one-off Thunderbird import.
+- `--filesystem=~/.thunderbird:ro`: one-off import from a native Thunderbird profile (the Flatpak Thunderbird's data dir is not allowed by the Flathub linter, so that profile cannot be imported).
 - `--talk-name=org.kde.StatusNotifierWatcher`: tray icon. `--talk-name=org.freedesktop.Notifications`: new-mail notifications.
 
 The app sets its desktop file name from the build-time variable `RUSTY_INBOX_DESKTOP_ID`

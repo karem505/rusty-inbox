@@ -16,9 +16,12 @@ Docs checked: <https://docs.flathub.org/docs/for-app-authors/submission> and `/r
 1. Merge the `flatpak` PR into `main`; the metainfo, desktop file and icons must exist at the tag.
 2. Tag the merge commit `v0.1.0`, push the tag, and get its full SHA: `git rev-parse v0.1.0^{commit}`.
    (The tag also triggers the `Flatpak` workflow that attaches the `.flatpak` bundle to the release.)
-3. App id vs. repository: for `io.github.<user>.<Name>` Flathub expects `https://github.com/karem505/RustyInbox`.
-   The repo is `karem505/rusty-inbox`, so either rename the repo to `RustyInbox` (GitHub keeps redirects) or
-   expect to ask the reviewers for an exception. The metainfo URLs would then also change.
+3. App id vs. repository: the linter error `appid-url-not-reachable` expects `https://github.com/karem505/rustyinbox`
+   (lower-cased id tail) and returns 404 for the real repo `karem505/rusty-inbox`. Either rename the repo to
+   `rustyinbox` (GitHub keeps redirects; update the URLs in the metainfo/manifest) or ask reviewers for an exception
+   (`appid-url-not-reachable` entry in flathub/linter-exceptions, with the reason).
+   Also expected on a local repo lint: `appstream-screenshots-not-mirrored-in-ostree` / `appstream-external-screenshot-url`;
+   Flathub's own build mirrors the screenshots, so these clear there.
 4. Lint the final files again (see below). A Flathub-quality screenshot set is already served from `main`.
 
 ## Steps
@@ -61,9 +64,9 @@ flatpak run --command=flatpak-builder-lint org.flatpak.Builder repo repo
 - `--filesystem=~/.local/state/omarchy:ro`: the app follows the Omarchy desktop theme by reading
   `~/.local/state/omarchy/current/theme/colors.toml`. No XDG portal exposes this file.
   Read-only, one directory. Without it the app falls back to a built-in palette.
-- `--filesystem=~/.thunderbird:ro` and `~/.var/app/org.mozilla.thunderbird:ro`: the "Import from Thunderbird" feature
+- `--filesystem=~/.thunderbird:ro`: the "Import from Thunderbird" feature
   reads profile data (accounts, and saved passwords the user chooses to import) from the Thunderbird profile
-  (native and Flatpak locations). Read-only; used only on explicit user action. A portal folder chooser cannot be
+  (native location only: `flatpak-builder-lint` rejects read access to `~/.var/app/org.mozilla.thunderbird`). Read-only; used only on explicit user action. A portal folder chooser cannot be
   used because the location is fixed and the importer scans for the profile. Be ready to drop these if reviewers
   object, and let the user pick the profile folder with the file chooser portal instead.
 - File attachments use the QtQuick.Dialogs FileDialog, which goes through the xdg-desktop-portal inside Flatpak.
