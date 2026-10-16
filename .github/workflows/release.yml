@@ -3,7 +3,6 @@ name: Release
 on:
   push:
     tags: ["v*"]
-    branches: [ci-release]   # TEMP: iteration
   workflow_dispatch:
     inputs:
       version:
@@ -74,7 +73,7 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: "1"
           LINUXDEPLOY_OUTPUT_VERSION: ${{ needs.prepare.outputs.version }}
           EXTRA_QT_MODULES: "webenginecore;webenginequick;webchannel;positioning;qml;quick;svg"
-          EXTRA_PLATFORM_PLUGINS: "libqwayland-egl.so;libqwayland-generic.so"
+          EXTRA_PLATFORM_PLUGINS: "libqoffscreen.so;libqwayland-egl.so;libqwayland-generic.so"
           DEPLOY_PLATFORM_THEMES: "1"
           NO_STRIP: "1"
           ARCH: x86_64
@@ -106,6 +105,9 @@ jobs:
           QTWEBENGINE_CHROMIUM_FLAGS: "--no-sandbox --disable-gpu"
           QT_QUICK_BACKEND: software
         run: |
+          # the packaged app must not see the runner's Qt
+          unset QT_PLUGIN_PATH QML2_IMPORT_PATH QT_ROOT_DIR LD_LIBRARY_PATH
+          export PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '/Qt/' | paste -sd: -)
           app="$PWD/dist/rusty-inbox-$VERSION-x86_64.AppImage"
           out=$("$app" --appimage-extract-and-run --version)
           echo "$out"
@@ -159,9 +161,17 @@ jobs:
           if ($out -ne "rusty-inbox $env:VERSION") { throw "unexpected version: $out" }
           $data = Join-Path $env:RUNNER_TEMP "ri-data"; $shots = Join-Path $env:RUNNER_TEMP "ri-shots"
           New-Item -ItemType Directory -Force $data, $shots | Out-Null
+          $qtRoot = $env:QT_ROOT_DIR
+          # the packaged app must not see the runner's Qt
+          Remove-Item Env:QT_PLUGIN_PATH, Env:QML2_IMPORT_PATH, Env:QT_ROOT_DIR -ErrorAction SilentlyContinue
+          $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -notmatch '\\Qt\\' }) -join ';'
           $env:RUSTY_INBOX_DATA_DIR = $data; $env:QT_QPA_PLATFORM = "offscreen"
           $env:QTWEBENGINE_CHROMIUM_FLAGS = "--no-sandbox --disable-gpu"; $env:QT_QUICK_BACKEND = "software"
-          $p = Start-Process "dist\rusty-inbox\rusty-inbox.exe" -ArgumentList "--autotest=$shots" -PassThru -NoNewWindow
+          # headless run: a throw-away copy of the deploy dir plus the offscreen platform plugin (not shipped)
+          $t = Join-Path $env:RUNNER_TEMP "ri-offscreen"
+          Copy-Item "dist\rusty-inbox" $t -Recurse
+          Copy-Item "$qtRoot\plugins\platforms\qoffscreen.dll" "$t\platforms\"
+          $p = Start-Process "$t\rusty-inbox.exe" -ArgumentList "--autotest=$shots" -PassThru -NoNewWindow
           if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "autotest timed out" }
           if ($p.ExitCode -ne 0) { throw "autotest exit code $($p.ExitCode)" }
           Get-ChildItem $shots
@@ -252,9 +262,16 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           QTWEBENGINE_CHROMIUM_FLAGS: "--no-sandbox --disable-gpu"
         run: |
+          unset DYLD_FRAMEWORK_PATH DYLD_LIBRARY_PATH
           bin="dist/Rusty Inbox.app/Contents/MacOS/rusty-inbox"
           out=$("$bin" --version); echo "$out"
           [ "$out" = "rusty-inbox $VERSION" ]
+          # headless run: a throw-away copy of the bundle plus the offscreen platform plugin (not shipped)
+          t=$(mktemp -d); cp -R "dist/Rusty Inbox.app" "$t/"
+          cp "$QT_ROOT_DIR/plugins/platforms/libqoffscreen.dylib" "$t/Rusty Inbox.app/Contents/PlugIns/platforms/"
+          codesign --force --deep -s - "$t/Rusty Inbox.app"
+          bin="$t/Rusty Inbox.app/Contents/MacOS/rusty-inbox"
+          unset QT_PLUGIN_PATH QML2_IMPORT_PATH QT_ROOT_DIR
           data=$(mktemp -d); shots=$(mktemp -d)
           RUSTY_INBOX_DATA_DIR="$data" perl -e 'alarm 120; exec @ARGV' "$bin" --autotest="$shots"
           ls "$shots"; ls "$shots"/*.png >/dev/null
