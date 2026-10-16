@@ -1,0 +1,300 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+    branches: [ci-release]   # TEMP: iteration
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (test run: uploads artifacts, creates no release)"
+        required: true
+        default: "0.1.0"
+
+env:
+  CARGO_TERM_COLOR: always
+  QT_VERSION: "6.8.3"
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          v="${{ github.event.inputs.version }}"
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then v="${GITHUB_REF_NAME#v}"; fi
+          [ -n "$v" ] || v=0.1.0
+          v="${v#v}"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  linux:
+    needs: prepare
+    runs-on: ubuntu-22.04
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries
+        run: |
+          sudo -S -p '' apt-get update
+          sudo -S -p '' apt-get install -y --no-install-recommends libgl1-mesa-dev libxkbcommon-x11-0 libxkbcommon-dev \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 \
+            libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 libxcb-xfixes0 libnss3 libdbus-1-3 libfontconfig1 \
+            libasound2 libxdamage1 libxcomposite1 libxrandr2 libxtst6 libegl1 file desktop-file-utils
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          modules: qtwebengine qtwebchannel qtpositioning qtserialport
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release -p rusty-inbox
+      - name: Smoke test binary
+        run: |
+          out=$(./target/release/rusty-inbox --version)
+          echo "$out"
+          [ "$out" = "rusty-inbox $VERSION" ]
+      - name: Tarball (system Qt)
+        run: |
+          d="rusty-inbox-$VERSION-linux-x86_64"
+          mkdir -p "dist/$d/icons"
+          cp target/release/rusty-inbox "dist/$d/"
+          cp app/packaging/rusty-inbox.desktop app/packaging/install-user.sh LICENSE-MIT LICENSE-APACHE README.md "dist/$d/"
+          cp app/packaging/icons/*.png "dist/$d/icons/"
+          tar -C dist -czf "dist/$d.tar.gz" "$d"
+      - name: AppImage
+        env:
+          QML_SOURCES_PATHS: ${{ github.workspace }}/app/qml
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          LINUXDEPLOY_OUTPUT_VERSION: ${{ needs.prepare.outputs.version }}
+          EXTRA_QT_MODULES: "webenginecore;webenginequick;webchannel;positioning;qml;quick;svg"
+          EXTRA_PLATFORM_PLUGINS: "libqwayland-egl.so;libqwayland-generic.so"
+          DEPLOY_PLATFORM_THEMES: "1"
+          NO_STRIP: "1"
+          ARCH: x86_64
+        run: |
+          mkdir -p tools-bin && cd tools-bin
+          curl -fsSL --retry 3 -O https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          curl -fsSL --retry 3 -O https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x ./*.AppImage
+          cd ..
+          export PATH="$PWD/tools-bin:$PATH"
+          export QMAKE="$(command -v qmake)"
+          rm -rf AppDir
+          cp app/packaging/icons/rusty-inbox-256.png rusty-inbox.png
+          linuxdeploy-x86_64.AppImage --appdir AppDir \
+            --executable target/release/rusty-inbox \
+            --desktop-file app/packaging/rusty-inbox.desktop \
+            --icon-file app/packaging/icons/rusty-inbox-256.png --icon-filename rusty-inbox \
+            --plugin qt --output appimage
+          mv Rusty_Inbox-*.AppImage "dist/rusty-inbox-$VERSION-x86_64.AppImage" 2>/dev/null || mv ./*.AppImage "dist/rusty-inbox-$VERSION-x86_64.AppImage"
+      - name: Inspect AppImage contents
+        run: |
+          cd dist && chmod +x ./*.AppImage && ./rusty-inbox-$VERSION-x86_64.AppImage --appimage-extract >/dev/null
+          find squashfs-root -name 'QtWebEngineProcess' -o -name 'qtwebengine_resources.pak' -o -name 'qtwebengine_locales' -o -name 'icudtl.dat' | head
+          du -sh squashfs-root
+          rm -rf squashfs-root
+      - name: Smoke test AppImage
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QTWEBENGINE_CHROMIUM_FLAGS: "--no-sandbox --disable-gpu"
+          QT_QUICK_BACKEND: software
+        run: |
+          app="$PWD/dist/rusty-inbox-$VERSION-x86_64.AppImage"
+          out=$("$app" --appimage-extract-and-run --version)
+          echo "$out"
+          [ "$out" = "rusty-inbox $VERSION" ]
+          data=$(mktemp -d); shots=$(mktemp -d)
+          RUSTY_INBOX_DATA_DIR="$data" timeout 120 "$app" --appimage-extract-and-run --autotest="$shots"
+          ls "$shots"
+          ls "$shots"/*.png >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            dist/*.AppImage
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  windows:
+    needs: prepare
+    runs-on: windows-2022
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: win64_msvc2022_64
+          modules: qtwebengine qtwebchannel qtpositioning
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release -p rusty-inbox
+      - name: Deploy Qt
+        run: |
+          $d = "dist\rusty-inbox"
+          New-Item -ItemType Directory -Force $d | Out-Null
+          Copy-Item target\release\rusty-inbox.exe $d
+          Copy-Item LICENSE-MIT, LICENSE-APACHE $d
+          windeployqt --release --qmldir app\qml --no-translations "$d\rusty-inbox.exe"
+          Get-ChildItem $d | Select-Object -First 50 | Format-Table Name
+          "{0:N0} MB" -f ((Get-ChildItem $d -Recurse | Measure-Object Length -Sum).Sum / 1MB)
+          Test-Path "$d\QtWebEngineProcess.exe"
+      - name: Smoke test
+        run: |
+          $out = & "dist\rusty-inbox\rusty-inbox.exe" --version
+          Write-Host $out
+          if ($out -ne "rusty-inbox $env:VERSION") { throw "unexpected version: $out" }
+          $data = Join-Path $env:RUNNER_TEMP "ri-data"; $shots = Join-Path $env:RUNNER_TEMP "ri-shots"
+          New-Item -ItemType Directory -Force $data, $shots | Out-Null
+          $env:RUSTY_INBOX_DATA_DIR = $data; $env:QT_QPA_PLATFORM = "offscreen"
+          $env:QTWEBENGINE_CHROMIUM_FLAGS = "--no-sandbox --disable-gpu"; $env:QT_QUICK_BACKEND = "software"
+          $p = Start-Process "dist\rusty-inbox\rusty-inbox.exe" -ArgumentList "--autotest=$shots" -PassThru -NoNewWindow
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "autotest timed out" }
+          if ($p.ExitCode -ne 0) { throw "autotest exit code $($p.ExitCode)" }
+          Get-ChildItem $shots
+          if (-not (Get-ChildItem $shots -Filter *.png)) { throw "no screenshots" }
+      - name: Check install.ps1 syntax
+        run: |
+          foreach ($f in "scripts\install.ps1") {
+            $errs = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f), [ref]$null, [ref]$errs) | Out-Null
+            if ($errs) { $errs | ForEach-Object { Write-Host $_ }; throw "syntax errors in $f" }
+          }
+          powershell -NoProfile -File scripts\install.ps1 -DryRun
+      - name: Zip and installer
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Compress-Archive -Path "dist\rusty-inbox\*" -DestinationPath "out\rusty-inbox-$env:VERSION-windows-x64.zip"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" "/DAppVersion=$env:VERSION" "/DSourceDir=$PWD\dist\rusty-inbox" "/DOutDir=$PWD\out" "/DOutName=rusty-inbox-$env:VERSION-windows-x64-setup" app\packaging\windows\rusty-inbox.iss
+          if ($LASTEXITCODE -ne 0) { throw "iscc failed" }
+          Get-ChildItem out | Format-Table Name, Length
+      - name: Smoke test installer (silent install, run, uninstall)
+        run: |
+          $setup = Resolve-Path "out\rusty-inbox-$env:VERSION-windows-x64-setup.exe"
+          $dir = Join-Path $env:RUNNER_TEMP "ri-install"
+          Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/CURRENTUSER", "/NORESTART", "/DIR=$dir" -Wait
+          $out = & "$dir\rusty-inbox.exe" --version
+          Write-Host $out
+          if ($out -ne "rusty-inbox $env:VERSION") { throw "installed exe: $out" }
+          $un = Get-ChildItem $dir -Filter "unins*.exe" | Select-Object -First 1
+          Start-Process $un.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES" -Wait
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: out/*
+          if-no-files-found: error
+
+  macos:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          modules: qtwebengine qtwebchannel qtpositioning
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release -p rusty-inbox
+      - name: App bundle
+        run: |
+          app="dist/Rusty Inbox.app"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+          cp target/release/rusty-inbox "$app/Contents/MacOS/"
+          sed "s/@VERSION@/$VERSION/g" app/packaging/macos/Info.plist > "$app/Contents/Info.plist"
+          iset=$(mktemp -d)/rusty-inbox.iconset
+          mkdir -p "$iset"; p=app/packaging/icons
+          cp $p/rusty-inbox-16.png   "$iset/icon_16x16.png"
+          cp $p/rusty-inbox-32.png   "$iset/icon_16x16@2x.png"
+          cp $p/rusty-inbox-32.png   "$iset/icon_32x32.png"
+          cp $p/rusty-inbox-64.png   "$iset/icon_32x32@2x.png"
+          cp $p/rusty-inbox-128.png  "$iset/icon_128x128.png"
+          cp $p/rusty-inbox-256.png  "$iset/icon_128x128@2x.png"
+          cp $p/rusty-inbox-256.png  "$iset/icon_256x256.png"
+          cp $p/rusty-inbox-512.png  "$iset/icon_256x256@2x.png"
+          cp $p/rusty-inbox-512.png  "$iset/icon_512x512.png"
+          cp $p/rusty-inbox-1024.png "$iset/icon_512x512@2x.png"
+          iconutil -c icns "$iset" -o "$app/Contents/Resources/rusty-inbox.icns"
+          cp LICENSE-MIT LICENSE-APACHE "$app/Contents/Resources/"
+          macdeployqt "$app" -qmldir=app/qml -verbose=1
+          codesign --force --deep -s - "$app"
+          codesign --verify --deep --strict "$app"
+          du -sh "$app"
+          find "$app" -name 'QtWebEngineProcess*' | head
+      - name: Smoke test app
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QTWEBENGINE_CHROMIUM_FLAGS: "--no-sandbox --disable-gpu"
+        run: |
+          bin="dist/Rusty Inbox.app/Contents/MacOS/rusty-inbox"
+          out=$("$bin" --version); echo "$out"
+          [ "$out" = "rusty-inbox $VERSION" ]
+          data=$(mktemp -d); shots=$(mktemp -d)
+          RUSTY_INBOX_DATA_DIR="$data" perl -e 'alarm 120; exec @ARGV' "$bin" --autotest="$shots"
+          ls "$shots"; ls "$shots"/*.png >/dev/null
+      - name: DMG
+        run: |
+          stage=$(mktemp -d)
+          cp -R "dist/Rusty Inbox.app" "$stage/"
+          ln -s /Applications "$stage/Applications"
+          mkdir -p out
+          dmg="out/rusty-inbox-$VERSION-macos-${{ matrix.arch }}.dmg"
+          hdiutil create -volname "Rusty Inbox" -srcfolder "$stage" -ov -format UDZO "$dmg"
+          # mount and check the packaged app launches
+          mnt=$(mktemp -d)
+          hdiutil attach "$dmg" -mountpoint "$mnt" -nobrowse -quiet
+          "$mnt/Rusty Inbox.app/Contents/MacOS/rusty-inbox" --version
+          hdiutil detach "$mnt" -quiet
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: out/*.dmg
+          if-no-files-found: error
+
+  publish:
+    needs: [prepare, linux, windows, macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd artifacts
+          sha256sum rusty-inbox-* > SHA256SUMS
+          cat SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          fail_on_unmatched_files: true
+          generate_release_notes: false
+          overwrite_files: true

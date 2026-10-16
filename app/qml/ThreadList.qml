@@ -26,6 +26,10 @@ Rectangle {
     property bool compact: false
     property bool showAvatars: true
     property bool showPreview: true
+    // inbox: the eye button shows Done conversations too
+    property bool canShowDone: false
+    property bool showDone: false
+    signal toggleShowDone()
     // compact rows put the preview on the subject line (two lines instead of three)
     readonly property int rowHeight: compact ? 54 : (showPreview ? 76 : 58)
 
@@ -209,6 +213,14 @@ Rectangle {
             anchors.rightMargin: 8
             anchors.verticalCenter: parent.verticalCenter
             spacing: 2
+            IconButton {
+                objectName: "showDoneButton"
+                visible: root.canShowDone
+                icon: root.showDone ? "eye" : "eye-off"
+                active: root.showDone
+                tip: root.showDone ? qsTr("Hide Done mail (Shift+E)") : qsTr("Show Done mail too (Shift+E)")
+                onClicked: root.toggleShowDone()
+            }
             IconButton { objectName: "selectButton"; icon: "select"; tip: qsTr("Select (X)"); onClicked: root.selectMode = true }
             IconButton { objectName: "selectAllButton"; icon: "checkbox"; tip: qsTr("Select all (Ctrl+A)"); onClicked: root.selectAll() }
         }
@@ -363,6 +375,7 @@ Rectangle {
             required property int count
             required property bool unread
             required property bool pinned
+            required property bool done
 
             readonly property bool isCollapsed: root.collapsed[group] === true
             readonly property bool isSelected: root.selected[tid] === true
@@ -450,6 +463,8 @@ Rectangle {
             }
 
             Column {
+                opacity: row.done ? 0.55 : 1
+                Behavior on opacity { NumberAnimation { duration: Theme.normal } }
                 anchors.left: pick.right
                 anchors.leftMargin: 12
                 anchors.right: parent.right
@@ -475,6 +490,14 @@ Rectangle {
                         spacing: 6
                         opacity: hover.hovered ? 0 : 1
                         Behavior on opacity { NumberAnimation { duration: Theme.fast } }
+                        IconImage {
+                            visible: row.done
+                            width: 14; height: 14
+                            sourceSize: Qt.size(28, 28)
+                            source: "qrc:/qt/qml/org/rustyinbox/icons/done.svg"
+                            color: Theme.accent
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
                         IconImage {
                             visible: row.pinned
                             width: 13; height: 13
@@ -530,7 +553,7 @@ Rectangle {
                     id: quick
                     anchors.centerIn: parent
                     spacing: 1
-                    IconButton { size: 26; icon: "done"; tip: qsTr("Done"); onClicked: root.action("done", [row.tid]) }
+                    IconButton { size: 26; icon: row.done ? "inbox" : "done"; tip: row.done ? qsTr("Not done (E)") : qsTr("Done (E)"); onClicked: root.action(row.done ? "undone" : "done", [row.tid]) }
                     IconButton { size: 26; icon: "pin"; active: row.pinned; tip: row.pinned ? qsTr("Unpin") : qsTr("Pin"); onClicked: root.action(row.pinned ? "unpin" : "pin", [row.tid]) }
                     IconButton { id: rowSnooze; size: 26; icon: "clock"; tip: qsTr("Snooze"); onClicked: root.snooze([row.tid], rowSnooze) }
                     IconButton { size: 26; icon: "trash"; tip: qsTr("Delete"); onClicked: root.action("moveToTrash", [row.tid]) }

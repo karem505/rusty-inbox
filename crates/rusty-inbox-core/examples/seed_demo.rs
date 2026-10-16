@@ -292,7 +292,9 @@ fn main() {
     }
 
     // pin, done and snooze a few threads by subject
-    let rows = store.thread_rows(&ListFilter::Inbox { account: None, done: false, category: None }, 500).unwrap();
+    let rows = store
+        .thread_rows(&ListFilter::Inbox { account: None, done: false, category: None, with_done: false }, 500)
+        .unwrap();
     let find = |s: &str| rows.iter().find(|r| r.subject == s).map(|r| r.thread_id);
     if let Some(t) = find("Contract draft for Q4") {
         store.set_thread_flag(t, "pinned", true).unwrap();

@@ -1,0 +1,45 @@
+# Maintainer: Karem Aboelmakarem <karem505 at github>
+pkgname=rusty-inbox
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Fast native email client: Rust IMAP/SMTP engine, Qt 6 QML interface, Smart Inbox, undo send, keyboard-first"
+arch=('x86_64' 'aarch64')
+url="https://github.com/karem505/rusty-inbox"
+license=('MIT OR Apache-2.0')
+depends=('qt6-base' 'qt6-declarative' 'qt6-webengine' 'qt6-svg' 'gcc-libs' 'glibc' 'hicolor-icon-theme')
+makedepends=('cargo' 'clang')
+optdepends=('xdg-utils: open links and make Rusty Inbox the mailto handler')
+options=('!lto')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/karem505/rusty-inbox/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  export QMAKE=/usr/bin/qmake6
+  cargo build --frozen --release -p rusty-inbox
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen --release -p rusty-inbox-core
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/release/rusty-inbox "$pkgdir/usr/bin/rusty-inbox"
+  install -Dm644 app/packaging/rusty-inbox.desktop "$pkgdir/usr/share/applications/rusty-inbox.desktop"
+  for s in 16 22 24 32 48 64 96 128 256 512; do
+    install -Dm644 "app/packaging/icons/rusty-inbox-$s.png" "$pkgdir/usr/share/icons/hicolor/${s}x${s}/apps/rusty-inbox.png"
+  done
+  install -Dm644 LICENSE-MIT LICENSE-APACHE -t "$pkgdir/usr/share/licenses/$pkgname/"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

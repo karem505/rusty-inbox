@@ -359,6 +359,11 @@ Rectangle {
                             Toggle { key: "collapseAutomated" }
                         }
                         Option {
+                            label: qsTr("Show Done mail in the Inbox")
+                            help: qsTr("Done conversations stay in the Inbox, dimmed and marked with a check. Off: they move to Done. Also the eye button above the list.")
+                            Toggle { key: "showDoneInInbox" }
+                        }
+                        Option {
                             label: qsTr("Mark as read when opened")
                             help: qsTr("Opening a conversation marks it read. Off: use U to mark it read yourself.")
                             Toggle { key: "markReadOnOpen" }
@@ -882,7 +887,7 @@ Rectangle {
                                 ["Enter / O", qsTr("Open")], ["Esc", qsTr("Close / cancel selection")],
                                 ["X", qsTr("Select the focused conversation")], ["Ctrl+A", qsTr("Select all")],
                                 ["Shift+click", qsTr("Select a range")], ["Ctrl+click", qsTr("Add to the selection")],
-                                ["E", qsTr("Done")], ["P", qsTr("Pin / unpin")], ["S", qsTr("Snooze")],
+                                ["E", qsTr("Done / not done")], ["Shift+E", qsTr("Show or hide Done mail in the Inbox")], ["P", qsTr("Pin / unpin")], ["S", qsTr("Snooze")],
                                 ["U", qsTr("Mark read / unread")], ["#, Delete", qsTr("Delete")], ["!", qsTr("Spam")],
                                 ["Z / Ctrl+Z", qsTr("Undo")], ["Ctrl+,", qsTr("Settings")],
                                 ["C / Ctrl+N", qsTr("New message")], ["R", qsTr("Reply")], ["A", qsTr("Reply all")],
