@@ -22,9 +22,9 @@ into people, notifications and newsletters. Every action works from the keyboard
 starts in a fraction of a second and stays light on memory, because the whole mail engine is
 native Rust and the interface is Qt Quick, not a browser shell.
 
-▶ **Watch the 50-second launch video** (click the image):
+▶ **Watch the 50-second launch video on YouTube** (click the image):
 
-[![Rusty Inbox launch video](docs/screenshots/promo-poster.jpg)](https://github.com/karem505/rusty-inbox/blob/main/docs/media/rusty-inbox-launch.mp4)
+[![Rusty Inbox launch video on YouTube](docs/screenshots/promo-poster-play.jpg)](https://www.youtube.com/watch?v=eDgUudd3zOw)
 
 ## Features
 
@@ -63,9 +63,9 @@ native Rust and the interface is Qt Quick, not a browser shell.
 | **Accounts** | **Light theme** |
 | ![Accounts](docs/screenshots/accounts.jpg) | ![Light theme](docs/screenshots/light-theme.jpg) |
 
-A full tour, recorded on a demo mailbox:
+A full tour on YouTube, recorded on a demo mailbox:
 
-[![Rusty Inbox feature tour](docs/screenshots/tour-poster.jpg)](https://github.com/karem505/rusty-inbox/blob/main/docs/media/rusty-inbox-tour.mp4)
+[![Rusty Inbox feature tour on YouTube](docs/screenshots/tour-poster-play.jpg)](https://www.youtube.com/watch?v=QinUtaGOhWg)
 
 ## Install
 
