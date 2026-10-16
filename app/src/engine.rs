@@ -22,13 +22,14 @@ pub fn runtime() -> &'static tokio::runtime::Runtime {
     })
 }
 
-/// `$RUSTY_INBOX_DATA_DIR`, else `$XDG_DATA_HOME/rusty-inbox/core-data`.
+/// `$RUSTY_INBOX_DATA_DIR`, else the platform data dir: `$XDG_DATA_HOME/rusty-inbox/core-data`
+/// on Linux, `~/Library/Application Support/rusty-inbox/core-data` on macOS,
+/// `%APPDATA%\\rusty-inbox\\core-data` on Windows.
 pub fn data_dir() -> PathBuf {
     if let Some(d) = std::env::var_os("RUSTY_INBOX_DATA_DIR") {
         return PathBuf::from(d);
     }
-    let base = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
+    let base = dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/share"));
     base.join("rusty-inbox/core-data")
 }
@@ -227,6 +228,63 @@ pub async fn add_account(req: Value) -> Result<String, String> {
     store.set_secret(&format!("password:{email}"), &password).map_err(|e| e.to_string())?;
     sync_now();
     Ok(email)
+}
+
+/// Accounts found in Thunderbird profiles (no passwords), each with `exists` (already added here)
+/// and `hasPassword` (Thunderbird's saved password can be brought over).
+pub fn thunderbird_of(store: &Store) -> Value {
+    let have: Vec<String> = store.accounts().unwrap_or_default().into_iter().map(|a| a.email).collect();
+    let list: Vec<Value> = rusty_inbox_core::thunderbird::find_accounts()
+        .into_iter()
+        .map(|a| {
+            let mut v = serde_json::to_value(&a).unwrap_or(Value::Null);
+            v["exists"] = json!(have.contains(&a.email));
+            v
+        })
+        .collect();
+    Value::Array(list)
+}
+
+/// The add-account request for a Thunderbird account (servers as Thunderbird has them).
+pub fn thunderbird_request(a: &rusty_inbox_core::thunderbird::TbAccount, password: &str) -> Value {
+    json!({
+        "email": a.email, "name": a.name, "password": password, "username": a.username,
+        "imapHost": a.imap_host, "imapPort": a.imap_port, "imapSecurity": a.imap_security,
+        "smtpHost": a.smtp_host, "smtpPort": a.smtp_port, "smtpSecurity": a.smtp_security,
+    })
+}
+
+/// Import the chosen Thunderbird accounts one after another (mail servers throttle bursts of
+/// logins), with Thunderbird's saved password or the one typed in `passwords`.
+pub async fn import_thunderbird(
+    emails: Vec<String>,
+    passwords: std::collections::HashMap<String, String>,
+    report: impl Fn(String, Result<(), String>),
+) {
+    let found = rusty_inbox_core::thunderbird::find_accounts();
+    for (i, email) in emails.iter().enumerate() {
+        let Some(a) = found.iter().find(|a| &a.email == email) else {
+            report(email.clone(), Err("not found in Thunderbird".into()));
+            continue;
+        };
+        let typed = passwords.get(email).filter(|p| !p.is_empty()).cloned();
+        let Some(pw) = typed.or_else(|| a.password.clone()) else {
+            report(
+                email.clone(),
+                Err(if a.oauth {
+                    "Thunderbird signs in with Google or Microsoft here. Enter an app password.".into()
+                } else {
+                    "Enter the password".into()
+                }),
+            );
+            continue;
+        };
+        if i > 0 {
+            tokio::time::sleep(Duration::from_secs(3)).await;
+        }
+        let r = add_account(thunderbird_request(a, &pw)).await.map(|_| ());
+        report(email.clone(), r);
+    }
 }
 
 pub fn remove_account(email: &str) -> Result<(), String> {
@@ -469,6 +527,12 @@ pub fn compose_of(store: &Store, kind: &str, message_id: i64, account: &str) -> 
             mine.first().cloned().unwrap_or_default()
         }
     };
+    if kind.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("mailto:")) {
+        let acc = pick(account);
+        let mut d = rusty_inbox_core::compose::new_draft(store, &acc, &crate::settings::signature(store, &acc));
+        rusty_inbox_core::compose::apply_mailto(&mut d, kind);
+        return d.to_json();
+    }
     let d = match kind {
         "reply" | "replyAll" | "forward" => {
             let acc = store.message(message_id).ok().flatten().map(|(_, m)| m.account).unwrap_or_default();
@@ -667,6 +731,29 @@ mod tests {
     }
 
     #[test]
+    fn thunderbird_requests_are_valid_add_requests() {
+        let a = rusty_inbox_core::thunderbird::TbAccount {
+            email: "ann@example.com".into(),
+            name: "Ann".into(),
+            username: "ann".into(),
+            imap_host: "imap.example.com".into(),
+            imap_port: 993,
+            imap_security: "tls".into(),
+            smtp_host: "smtp.example.com".into(),
+            smtp_port: 587,
+            smtp_security: "starttls".into(),
+            oauth: false,
+            password: None,
+            has_password: false,
+            profile: "p".into(),
+        };
+        let (email, _, pw, acct) = parse_new_account(&thunderbird_request(&a, "pw")).unwrap();
+        let acct = acct.unwrap();
+        assert_eq!((email.as_str(), pw.as_str(), acct.username.as_str()), ("ann@example.com", "pw", "ann"));
+        assert_eq!((acct.smtp_port, acct.smtp_security.as_str()), (587, "starttls"));
+    }
+
+    #[test]
     fn compose_and_scheduled_rows() {
         let s = seeded();
         let d = Draft::from_json(&compose_of(&s, "new", 0, "nobody@example.com"));
@@ -681,6 +768,8 @@ mod tests {
         assert_eq!(rows[0]["from"], "To: Bo");
         assert_eq!(sidebar_of(&s)["scheduled"], 1);
         assert_eq!(file_info("/definitely/not/here"), Value::Null);
+        let m = Draft::from_json(&compose_of(&s, "mailto:x@example.org?subject=Hey", 0, ""));
+        assert_eq!((m.to[0].address.as_str(), m.subject.as_str(), m.kind.as_str()), ("x@example.org", "Hey", "new"));
         let f = file_info(&format!("file://{}", env!("CARGO_MANIFEST_DIR").replace(' ', "%20") + "/Cargo.toml"));
         assert_eq!(f["name"], "Cargo.toml");
     }

@@ -260,9 +260,7 @@ pub fn tray_icon_file(unread: bool) -> Option<PathBuf> {
     for b in svg.bytes() {
         h = (h ^ b as u64).wrapping_mul(1099511628211);
     }
-    let base = std::env::var_os("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache"));
+    let base = dirs::cache_dir().unwrap_or_else(std::env::temp_dir);
     let dir = base.join("rusty-inbox/tray");
     std::fs::create_dir_all(&dir).ok()?;
     let f = dir.join(format!("tray-{}-{h:016x}.svg", if unread { "unread" } else { "idle" }));

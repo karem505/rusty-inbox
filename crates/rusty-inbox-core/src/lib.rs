@@ -12,6 +12,7 @@ pub mod engine;
 pub mod mail;
 pub mod search;
 pub mod store;
+pub mod thunderbird;
 
 pub use engine::{Engine, EngineConfig, NewMail};
 

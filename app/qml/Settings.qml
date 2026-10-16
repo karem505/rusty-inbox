@@ -30,11 +30,34 @@ Rectangle {
         acceptedButtons: Qt.AllButtons
         onWheel: (wheel) => wheel.accepted = true
     }
-    Keys.onEscapePressed: root.page === "addAccount" ? root.page = "accounts" : root.closed()
+    Keys.onEscapePressed: (root.page === "addAccount" || root.page === "importTb") ? root.page = "accounts" : root.closed()
 
+    property var templates: []
+    // Thunderbird import
+    property var tbAccounts: []
+    property var tbPicked: ({})
+    property var tbStatus: ({})          // email -> "busy" | "ok" | error text
+    property var tbPasswords: ({})
+    function openImport() {
+        tbAccounts = JSON.parse(backend.thunderbird_json())
+        const picked = {}
+        for (const a of tbAccounts) picked[a.email] = !a.exists
+        tbPicked = picked
+        tbStatus = ({})
+        page = "importTb"
+    }
+    function runImport() {
+        const emails = tbAccounts.filter(a => tbPicked[a.email] && !a.exists).map(a => a.email)
+        if (!emails.length) return
+        const st = Object.assign({}, tbStatus)
+        for (const e of emails) st[e] = "busy"
+        tbStatus = st
+        backend.import_thunderbird(JSON.stringify({ emails: emails, passwords: tbPasswords }))
+    }
     function reload() {
         prefs = JSON.parse(backend.settings_json())
         accounts = JSON.parse(backend.account_details_json())
+        templates = JSON.parse(backend.templates_json())
     }
     function save(key, value) {
         const err = backend.set_setting(key, JSON.stringify(value))
@@ -46,6 +69,16 @@ Rectangle {
 
     Connections {
         target: root.backend
+        function onImport_result(email, error) {
+            const st = Object.assign({}, root.tbStatus)
+            st[email] = error === "" ? "ok" : error
+            root.tbStatus = st
+            if (error === "") {
+                root.notice(qsTr("%1 added. Its mail is downloading now.").arg(email))
+                root.reload()
+                root.tbAccounts = root.tbAccounts.map(a => a.email === email ? Object.assign({}, a, { exists: true }) : a)
+            }
+        }
         function onAccount_added(email, error) {
             root.busyEmail = ""
             if (error === "") {
@@ -65,6 +98,7 @@ Rectangle {
         { id: "accounts", label: qsTr("Accounts"), icon: "account" },
         { id: "notifications", label: qsTr("Notifications"), icon: "bell" },
         { id: "appearance", label: qsTr("Appearance"), icon: "palette" },
+        { id: "templates", label: qsTr("Templates"), icon: "template" },
         { id: "shortcuts", label: qsTr("Shortcuts"), icon: "keyboard" },
         { id: "about", label: qsTr("About"), icon: "info" }
     ]
@@ -256,7 +290,7 @@ Rectangle {
                     model: root.pages
                     delegate: Rectangle {
                         required property var modelData
-                        readonly property bool current: root.page === modelData.id || (modelData.id === "accounts" && root.page === "addAccount")
+                        readonly property bool current: root.page === modelData.id || (modelData.id === "accounts" && (root.page === "addAccount" || root.page === "importTb"))
                         width: parent.width
                         height: 34
                         radius: 8
@@ -359,6 +393,7 @@ Rectangle {
                         RowLayout {
                             Layout.fillWidth: true
                             Title { text: qsTr("Accounts"); Layout.fillWidth: true }
+                            Button2 { objectName: "importTbButton"; text: qsTr("Import from Thunderbird"); onClicked: root.openImport() }
                             Button2 { objectName: "addAccountButton"; text: qsTr("Add account"); primary: true; onClicked: root.page = "addAccount" }
                         }
                         Text {
@@ -515,6 +550,105 @@ Rectangle {
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+
+                    // ---------------- Import from Thunderbird
+                    ColumnLayout {
+                        visible: root.page === "importTb"
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Title { text: qsTr("Import from Thunderbird") }
+                        Text {
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
+                            text: root.tbAccounts.length
+                                ? qsTr("Accounts found in your Thunderbird profile. Servers and saved passwords come over as they are; each account is checked with its server before it is added.")
+                                : qsTr("No Thunderbird profile with mail accounts was found on this computer.")
+                            font.pixelSize: 13
+                            color: Theme.textSubtle
+                        }
+                        Repeater {
+                            model: root.tbAccounts
+                            delegate: Rectangle {
+                                id: trow
+                                required property var modelData
+                                readonly property string status: root.tbStatus[modelData.email] || ""
+                                readonly property bool needsPassword: !modelData.hasPassword && !modelData.exists
+                                Layout.fillWidth: true
+                                implicitHeight: trowCol.implicitHeight + 24
+                                radius: 10
+                                color: Theme.surface
+                                border.color: Theme.border
+                                TickBox {
+                                    id: ttick
+                                    x: 14
+                                    y: 16
+                                    visible: !trow.modelData.exists && trow.status !== "ok"
+                                    checked: root.tbPicked[trow.modelData.email] === true
+                                    onToggled: {
+                                        const p = Object.assign({}, root.tbPicked)
+                                        p[trow.modelData.email] = !p[trow.modelData.email]
+                                        root.tbPicked = p
+                                    }
+                                }
+                                ColumnLayout {
+                                    id: trowCol
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.top: parent.top
+                                    anchors.leftMargin: 44
+                                    anchors.rightMargin: 14
+                                    anchors.topMargin: 12
+                                    spacing: 4
+                                    Text { text: trow.modelData.email; font.pixelSize: 14; font.weight: Font.DemiBold; color: Theme.textStrong }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        elide: Text.ElideRight
+                                        text: trow.modelData.imapHost + ":" + trow.modelData.imapPort + "  ·  " + trow.modelData.smtpHost + ":" + trow.modelData.smtpPort
+                                              + (trow.modelData.name ? "  ·  " + trow.modelData.name : "")
+                                        font.pixelSize: 12
+                                        color: Theme.textMuted
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.Wrap
+                                        font.pixelSize: 12
+                                        color: trow.status === "ok" || trow.modelData.exists ? Theme.accent
+                                             : (trow.status !== "" && trow.status !== "busy") ? Theme.danger : Theme.textSubtle
+                                        text: trow.modelData.exists || trow.status === "ok" ? qsTr("Added")
+                                            : trow.status === "busy" ? qsTr("Checking with the server…")
+                                            : trow.status !== "" ? trow.status
+                                            : trow.modelData.hasPassword ? qsTr("Saved password found")
+                                            : trow.modelData.oauth ? qsTr("Thunderbird signs in with Google or Microsoft. Enter an app password to use it here.")
+                                            : qsTr("No saved password. Enter it below.")
+                                    }
+                                    TextField {
+                                        visible: trow.needsPassword && trow.status !== "ok"
+                                        Layout.preferredWidth: 320
+                                        echoMode: TextInput.Password
+                                        placeholderText: trow.modelData.oauth ? qsTr("App password") : qsTr("Password")
+                                        color: Theme.text
+                                        onTextEdited: {
+                                            const p = Object.assign({}, root.tbPasswords)
+                                            p[trow.modelData.email] = text
+                                            root.tbPasswords = p
+                                        }
+                                        background: Rectangle { radius: 8; color: Theme.window; border.color: parent.activeFocus ? Theme.accent : Theme.border }
+                                    }
+                                }
+                            }
+                        }
+                        RowLayout {
+                            spacing: 10
+                            Button2 { text: qsTr("Back"); onClicked: root.page = "accounts" }
+                            Button2 {
+                                objectName: "importTbRun"
+                                primary: true
+                                enabled: root.tbAccounts.some(a => root.tbPicked[a.email] && !a.exists && root.tbStatus[a.email] !== "busy")
+                                text: qsTr("Import selected")
+                                onClicked: root.runImport()
                             }
                         }
                     }
@@ -677,6 +811,65 @@ Rectangle {
                         }
                     }
 
+                    // ---------------- Templates
+                    ColumnLayout {
+                        visible: root.page === "templates"
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Title { text: qsTr("Templates") }
+                        Text {
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
+                            text: qsTr("Reuse messages you write often. Save one from the composer with the template button, then insert it from the same button.")
+                            font.pixelSize: 13
+                            color: Theme.textSubtle
+                        }
+                        Text {
+                            visible: root.templates.length === 0
+                            text: qsTr("No templates yet")
+                            font.pixelSize: 14
+                            color: Theme.textMuted
+                            topPadding: 10
+                        }
+                        Repeater {
+                            model: root.templates
+                            delegate: Rectangle {
+                                id: tcard
+                                required property var modelData
+                                Layout.fillWidth: true
+                                implicitHeight: tcol.implicitHeight + 24
+                                radius: 10
+                                color: Theme.surface
+                                border.color: Theme.border
+                                ColumnLayout {
+                                    id: tcol
+                                    anchors.left: parent.left
+                                    anchors.right: tdel.left
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.margins: 14
+                                    spacing: 3
+                                    Text { Layout.fillWidth: true; text: tcard.modelData.name; font.pixelSize: 14; font.weight: Font.DemiBold; color: Theme.textStrong; elide: Text.ElideRight }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: (tcard.modelData.subject ? tcard.modelData.subject + " · " : "") + String(tcard.modelData.html).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim()
+                                        font.pixelSize: 12
+                                        color: Theme.textMuted
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                                Button2 {
+                                    id: tdel
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 12
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: qsTr("Delete")
+                                    danger: true
+                                    onClicked: { root.backend.delete_template(tcard.modelData.id); root.reload() }
+                                }
+                            }
+                        }
+                    }
+
                     // ---------------- Shortcuts
                     ColumnLayout {
                         visible: root.page === "shortcuts"
@@ -691,7 +884,9 @@ Rectangle {
                                 ["Shift+click", qsTr("Select a range")], ["Ctrl+click", qsTr("Add to the selection")],
                                 ["E", qsTr("Done")], ["P", qsTr("Pin / unpin")], ["S", qsTr("Snooze")],
                                 ["U", qsTr("Mark read / unread")], ["#, Delete", qsTr("Delete")], ["!", qsTr("Spam")],
-                                ["Z / Ctrl+Z", qsTr("Undo")], ["Ctrl+,", qsTr("Settings")]
+                                ["Z / Ctrl+Z", qsTr("Undo")], ["Ctrl+,", qsTr("Settings")],
+                                ["C / Ctrl+N", qsTr("New message")], ["R", qsTr("Reply")], ["A", qsTr("Reply all")],
+                                ["F", qsTr("Forward")], ["Ctrl+Enter", qsTr("Send")], ["Ctrl+Shift+A", qsTr("Attach files")]
                             ]
                             delegate: RowLayout {
                                 required property var modelData

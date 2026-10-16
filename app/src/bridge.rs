@@ -52,6 +52,15 @@ pub mod qobject {
         #[qinvokable]
         fn add_account(self: Pin<&mut Backend>, request_json: &QString);
 
+        /// Accounts found in Thunderbird (JSON list, no passwords).
+        #[qinvokable]
+        fn thunderbird_json(self: &Backend) -> QString;
+
+        /// Import Thunderbird accounts: `{"emails": [...], "passwords": {email: password}}`.
+        /// Answers with one `import_result` per account.
+        #[qinvokable]
+        fn import_thunderbird(self: Pin<&mut Backend>, request_json: &QString);
+
         /// Remove an account and its local mail. Returns "" or an error message.
         #[qinvokable]
         fn remove_account(self: Pin<&mut Backend>, email: &QString) -> QString;
@@ -59,6 +68,10 @@ pub mod qobject {
         /// Change an account's display name. Returns "" or an error message.
         #[qinvokable]
         fn rename_account(self: Pin<&mut Backend>, email: &QString, name: &QString) -> QString;
+
+        /// The request this launch was started with (`show`, `compose`, `mailto:...`), once.
+        #[qinvokable]
+        fn take_request(self: &Backend) -> QString;
 
         /// A composer draft (JSON): kind `new` | `reply` | `replyAll` | `forward` | `draft`.
         #[qinvokable]
@@ -88,6 +101,17 @@ pub mod qobject {
         /// Take a queued message back (undo send / edit a scheduled one): its draft JSON or "".
         #[qinvokable]
         fn unqueue(self: &Backend, id: i64) -> QString;
+
+        /// Saved templates (JSON list of {id, name, subject, html}).
+        #[qinvokable]
+        fn templates_json(self: &Backend) -> QString;
+
+        /// Add or replace a template (JSON). Returns {"id": n} or {"error": "..."}.
+        #[qinvokable]
+        fn save_template(self: &Backend, template_json: &QString) -> QString;
+
+        #[qinvokable]
+        fn delete_template(self: &Backend, id: i64);
 
         /// The signature of an account.
         #[qinvokable]
@@ -160,10 +184,17 @@ pub mod qobject {
         #[qsignal]
         fn settings_changed(self: Pin<&mut Backend>, json: QString);
 
-        /// A queued message was sent (`error` empty) or failed.
+        /// One Thunderbird account imported (`error` empty) or not.
+        #[qsignal]
+        fn import_result(self: Pin<&mut Backend>, email: QString, error: QString);
 
+        /// A queued message was sent (`error` empty) or failed.
         #[qsignal]
         fn send_result(self: Pin<&mut Backend>, id: i64, subject: QString, error: QString);
+
+        /// Another launch handed over a request (`show`, `compose`, `mailto:...`).
+        #[qsignal]
+        fn activated(self: Pin<&mut Backend>, request: QString);
 
         #[qsignal]
         fn mail_changed(self: Pin<&mut Backend>);
@@ -210,6 +241,11 @@ impl qobject::Backend {
             }
             let qt = qt_notify.clone();
             std::thread::spawn(move || show_notification(n, qt));
+        });
+        let qt_inst = self.qt_thread();
+        crate::instance::listen(move |req| {
+            let _ =
+                qt_inst.queue(move |mut obj: Pin<&mut qobject::Backend>| obj.as_mut().activated(QString::from(&req)));
         });
         let qt_out = self.qt_thread();
         engine::on_outbox(move |id, subject, result| {
@@ -283,6 +319,33 @@ impl qobject::Backend {
         });
     }
 
+    fn thunderbird_json(&self) -> QString {
+        QString::from(&engine::thunderbird_of(engine::core().store()).to_string())
+    }
+
+    fn import_thunderbird(self: Pin<&mut Self>, request_json: &QString) {
+        let qt = self.qt_thread();
+        let req: serde_json::Value = serde_json::from_str(&request_json.to_string()).unwrap_or_default();
+        let emails: Vec<String> = req["emails"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|e| e.as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        let passwords: std::collections::HashMap<String, String> = req["passwords"]
+            .as_object()
+            .map(|o| o.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).collect())
+            .unwrap_or_default();
+        engine::runtime().spawn(async move {
+            engine::import_thunderbird(emails, passwords, move |email, r| {
+                let err = r.err().unwrap_or_default();
+                let _ = qt.queue(move |mut obj: Pin<&mut qobject::Backend>| {
+                    obj.as_mut().import_result(QString::from(&email), QString::from(&err));
+                    obj.as_mut().mail_changed();
+                });
+            })
+            .await;
+        });
+    }
+
     fn remove_account(mut self: Pin<&mut Self>, email: &QString) -> QString {
         match engine::remove_account(&email.to_string()) {
             Ok(()) => {
@@ -301,6 +364,10 @@ impl qobject::Backend {
             }
             Err(e) => QString::from(&e),
         }
+    }
+
+    fn take_request(&self) -> QString {
+        QString::from(&INITIAL_REQUEST.lock().map(|mut r| std::mem::take(&mut *r)).unwrap_or_default())
     }
 
     fn compose_json(&self, kind: &QString, message_id: i64, account: &QString) -> QString {
@@ -349,6 +416,23 @@ impl qobject::Backend {
     fn unqueue(&self, id: i64) -> QString {
         let v = engine::core().unqueue(id).map(|d| d.to_json().to_string()).unwrap_or_default();
         QString::from(&v)
+    }
+
+    fn templates_json(&self) -> QString {
+        QString::from(&crate::settings::templates(engine::core().store()).to_string())
+    }
+
+    fn save_template(&self, template_json: &QString) -> QString {
+        let t: serde_json::Value = serde_json::from_str(&template_json.to_string()).unwrap_or_default();
+        let v = match crate::settings::save_template(engine::core().store(), &t) {
+            Ok(id) => serde_json::json!({ "id": id }),
+            Err(e) => serde_json::json!({ "error": e }),
+        };
+        QString::from(&v.to_string())
+    }
+
+    fn delete_template(&self, id: i64) {
+        let _ = crate::settings::delete_template(engine::core().store(), id);
     }
 
     fn signature(&self, email: &QString) -> QString {
@@ -436,6 +520,15 @@ impl qobject::Backend {
 
     fn inverse_of(&self, action: &QString) -> QString {
         QString::from(engine::inverse_of(&action.to_string()).unwrap_or(""))
+    }
+}
+
+static INITIAL_REQUEST: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+/// Remember what this launch asked for; QML takes it once the window is up.
+pub fn set_initial_request(r: &str) {
+    if let Ok(mut g) = INITIAL_REQUEST.lock() {
+        *g = r.to_string();
     }
 }
 

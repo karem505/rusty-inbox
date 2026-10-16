@@ -52,6 +52,7 @@ Rectangle {
     }
 
     // scripted checks (--autotest)
+    function templateForTest(name) { saveAsTemplate(name) }
     function fillForTest(to, subj, html) {
         toField.addresses = to
         subject.text = subj
@@ -148,6 +149,47 @@ Rectangle {
     Timer { interval: 4000; repeat: true; running: root.visible && root.dirty; onTriggered: root.save(false) }
 
     ListModel { id: attachModel }
+
+    // ---- templates
+    property var templates: []
+    function insertTemplate(t) {
+        if (!subject.text.trim() && t.subject) subject.text = t.subject
+        web.runJavaScript("insertAtCaret(" + JSON.stringify(t.html) + ")")
+        dirty = true
+    }
+    function saveAsTemplate(name) {
+        collect(function(d) {
+            const html = String(d.html).replace(/<div class="ri-signature">[\s\S]*?<\/div>/, "").replace(/<blockquote class="ri-quote"[\s\S]*$/, "")
+            const r = JSON.parse(root.backend.save_template(JSON.stringify({ name: name, subject: d.subject, html: html })))
+            root.notice(r.error ? r.error : qsTr("Template \"%1\" saved").arg(name))
+        })
+    }
+    Menu {
+        id: tplMenu
+        Instantiator {
+            model: root.templates
+            delegate: MenuItem {
+                required property var modelData
+                text: modelData.name
+                onTriggered: root.insertTemplate(modelData)
+            }
+            onObjectAdded: (index, object) => tplMenu.insertItem(index, object)
+            onObjectRemoved: (index, object) => tplMenu.removeItem(object)
+        }
+        MenuItem { enabled: false; visible: root.templates.length === 0; height: visible ? implicitHeight : 0; text: qsTr("No templates yet") }
+        MenuSeparator {}
+        MenuItem { text: qsTr("Save this message as a template…"); onTriggered: tplDialog.open() }
+    }
+    Dialog {
+        id: tplDialog
+        anchors.centerIn: parent
+        modal: true
+        title: qsTr("Save as template")
+        standardButtons: Dialog.Cancel | Dialog.Save
+        onOpened: { tplName.text = subject.text; tplName.forceActiveFocus(); tplName.selectAll() }
+        onAccepted: root.saveAsTemplate(tplName.text.trim())
+        TextField { id: tplName; width: 320; placeholderText: qsTr("Template name"); onAccepted: tplDialog.accept() }
+    }
     FileDialog {
         id: fileDialog
         title: qsTr("Attach files")
@@ -460,6 +502,14 @@ Rectangle {
             }
             IconButton { id: laterBtn; anchors.verticalCenter: parent.verticalCenter; icon: "clock"; tip: qsTr("Send later"); onClicked: laterMenu.popup(laterBtn, 0, -laterMenu.implicitHeight - 6) }
             IconButton { anchors.verticalCenter: parent.verticalCenter; icon: "paperclip"; tip: qsTr("Attach files (Ctrl+Shift+A)"); onClicked: fileDialog.open() }
+            IconButton {
+                id: tplBtn
+                objectName: "templatesButton"
+                anchors.verticalCenter: parent.verticalCenter
+                icon: "template"
+                tip: qsTr("Templates")
+                onClicked: { root.templates = JSON.parse(root.backend.templates_json()); tplMenu.popup(tplBtn, 0, -tplMenu.implicitHeight - 6) }
+            }
         }
         IconButton {
             anchors.right: parent.right
@@ -502,6 +552,7 @@ Rectangle {
             + "</style></head><body><div id='ed' contenteditable='true'></div><script>"
             + "const ed=document.getElementById('ed');let n=0;"
             + "function setContent(h){ed.innerHTML=h;}"
+            + "function insertAtCaret(h){ed.focus();const s=getSelection();if(!s.rangeCount||!ed.contains(s.anchorNode)){const r=document.createRange();r.setStart(ed,0);r.collapse(true);s.removeAllRanges();s.addRange(r);}document.execCommand('insertHTML',false,h);document.title='dirty:'+(n++);}"
             + "function focusStart(){ed.focus();const r=document.createRange();r.setStart(ed,0);r.collapse(true);const s=getSelection();s.removeAllRanges();s.addRange(r);}"
             + "function report(){const k=['bold','italic','underline','strikeThrough','insertUnorderedList','insertOrderedList'];document.title='fmt:'+k.map(c=>document.queryCommandState(c)?1:0).join('')+':'+(n++);}"
             + "ed.addEventListener('input',()=>{document.title='dirty:'+(n++)});"

@@ -272,6 +272,42 @@ pub fn from_stored_draft(store: &Store, message_id: i64) -> Option<Draft> {
     })
 }
 
+/// Apply a `mailto:` URL (RFC 6068) to a draft: recipients, cc, bcc, subject and body.
+pub fn apply_mailto(d: &mut Draft, url: &str) {
+    let rest = url.get(7..).unwrap_or("");
+    let (to, query) = rest.split_once('?').unwrap_or((rest, ""));
+    let dec = |s: &str| percent_encoding::percent_decode_str(&s.replace('+', "%2B")).decode_utf8_lossy().to_string();
+    let list = |s: &str| -> Vec<Addr> {
+        dec(s)
+            .split([',', ';'])
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+            .map(|a| match (a.find('<'), a.rfind('>')) {
+                (Some(l), Some(r)) if l < r => Addr {
+                    name: Some(a[..l].trim().trim_matches('"').to_string()).filter(|n| !n.is_empty()),
+                    address: a[l + 1..r].trim().to_string(),
+                },
+                _ => Addr { name: None, address: a.to_string() },
+            })
+            .collect()
+    };
+    d.to.extend(list(to));
+    for pair in query.split('&') {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        match k.to_ascii_lowercase().as_str() {
+            "to" => d.to.extend(list(v)),
+            "cc" => d.cc.extend(list(v)),
+            "bcc" => d.bcc.extend(list(v)),
+            "subject" => d.subject = dec(v),
+            "body" => {
+                let body = plain_to_html(&dec(v));
+                d.html = format!("<p>{body}</p>{}", d.html.trim_start_matches("<p><br></p>"));
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Plain-text alternative of an HTML body (tags dropped, blocks become lines).
 pub fn html_to_text(html: &str) -> String {
     let mut s = html.to_string();
@@ -462,6 +498,24 @@ mod tests {
         assert!(d.check().is_ok());
         let back = Draft::from_json(&d.to_json());
         assert_eq!(back, d);
+    }
+
+    #[test]
+    fn mailto_links_fill_the_draft() {
+        let mut d = Draft { html: "<p><br></p><div class=\"ri-signature\">sig</div>".into(), ..Default::default() };
+        apply_mailto(
+            &mut d,
+            "mailto:ann@example.org,Bob%20Lee%20%3Cbob@example.org%3E?cc=c@example.org&subject=Hello%20there&body=Line%201%0ALine%202",
+        );
+        let to: Vec<_> = d.to.iter().map(|a| (a.name.clone(), a.address.as_str())).collect();
+        assert_eq!(to, vec![(None, "ann@example.org"), (Some("Bob Lee".into()), "bob@example.org")]);
+        assert_eq!(d.cc[0].address, "c@example.org");
+        assert_eq!(d.subject, "Hello there");
+        assert!(d.html.starts_with("<p>Line 1<br>Line 2</p><div class=\"ri-signature\">"), "{}", d.html);
+        let mut e = Draft::default();
+        apply_mailto(&mut e, "mailto:?subject=a+b");
+        assert!(e.to.is_empty());
+        assert_eq!(e.subject, "a+b");
     }
 
     #[test]

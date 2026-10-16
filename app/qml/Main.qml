@@ -51,6 +51,7 @@ ApplicationWindow {
         onSettings_changed: (json) => win.prefs = JSON.parse(json)
         onMail_changed: win.reload()
         onAction_done: (action) => win.reload()
+        onActivated: (request) => win.handleRequest(request)
         onSend_result: (id, subject, error) => {
             if (error === "") toast.show(subject ? qsTr("Sent: %1").arg(subject) : qsTr("Message sent"), false)
             else toast.show(qsTr("Not sent (%1). It is waiting under Scheduled.").arg(error), false)
@@ -209,6 +210,16 @@ ApplicationWindow {
         win.raise()
         win.requestActivate()
     }
+    // a launch request (this one or a later launch handed over by the single-instance socket)
+    function handleRequest(req) {
+        if (!req) return
+        showWindow()
+        if (req === "compose") compose("new", 0)
+        else if (req.toLowerCase().startsWith("mailto:")) {
+            if (composerLoader.active) { toast.show(qsTr("Finish the open message first"), false); return }
+            openComposer(JSON.parse(backend.compose_json(req, 0, spec.account || "")), 0)
+        }
+    }
 
     Platform.SystemTrayIcon {
         id: tray
@@ -315,6 +326,8 @@ ApplicationWindow {
         threadList.collapsed = prefs.collapseAutomated === false ? ({}) : ({ notifications: true, newsletters: true })
         reload()
         backend.start()
+        const req = backend.take_request()
+        if (req && req !== "show") Qt.callLater(() => win.handleRequest(req))
     }
 
     // ---- keyboard ---------------------------------------------------------------------------
@@ -574,19 +587,26 @@ ApplicationWindow {
             case 44: composerLoader.item.closeComposer(); break
             case 45: win.log("after close (drafts kept locally)"); win.compose("new", 0); break
             case 46: composerLoader.item.fillForTest([{ name: "Test Person", address: "test@example.org" }, { name: null, address: "bad address" }], "Autotest message", "<p>Hello <b>there</b></p>"); break
-            case 47: win.shot("19-new-message"); composerLoader.item.send(0); break
-            case 48: win.log("bad address kept composer open " + composerLoader.active); composerLoader.item.fillForTest([{ name: "Test Person", address: "test@example.org" }], "Autotest message", "<p>Hello <b>there</b></p>"); break
-            case 49: composerLoader.item.send(0); break
-            case 50: win.log("queued, composer closed " + !composerLoader.active); win.shot("20-sending"); break
-            case 51: case 52: case 53: case 54: break
-            case 55: win.select({ list: "scheduled" }); break
-            case 56: win.log("scheduled list " + win.threads.length + " first=" + (win.threads[0] ? win.threads[0].preview : "")); win.shot("21-scheduled"); break
-            case 57: if (win.threads.length) win.openThread(win.threads[0].id); break
-            case 58: win.log("reopened failed send in composer " + composerLoader.active + " to=" + JSON.stringify(composerLoader.item.draft.to)); break
-            case 59: win.shot("22-edit-failed"); break
-            case 60: composerLoader.item.discard(); break
-            case 61: win.log("discarded: scheduled now " + win.threads.length + ", composer " + composerLoader.active); win.shot("23-after-discard"); break
-            case 62: console.warn("AUTOTEST end"); Qt.quit(); break
+            case 47: win.shot("19-new-message"); composerLoader.item.templateForTest("Autotest template"); break
+            case 48: win.log("templates " + backend.templates_json().length); composerLoader.item.send(0); break
+            case 49: win.log("bad address kept composer open " + composerLoader.active); composerLoader.item.fillForTest([{ name: "Test Person", address: "test@example.org" }], "Autotest message", "<p>Hello <b>there</b></p>"); break
+            case 50: composerLoader.item.send(0); break
+            case 51: win.log("queued, composer closed " + !composerLoader.active); win.shot("20-sending"); break
+            case 52: case 53: case 54: case 55: break
+            case 56: win.select({ list: "scheduled" }); break
+            case 57: win.log("scheduled list " + win.threads.length + " first=" + (win.threads[0] ? win.threads[0].preview : "")); win.shot("21-scheduled"); break
+            case 58: if (win.threads.length) win.openThread(win.threads[0].id); break
+            case 59: win.log("reopened failed send in composer " + composerLoader.active + " to=" + JSON.stringify(composerLoader.item.draft.to)); break
+            case 60: win.shot("22-edit-failed"); break
+            case 61: composerLoader.item.discard(); break
+            case 62: win.log("discarded: scheduled now " + win.threads.length + ", composer " + composerLoader.active); win.shot("23-after-discard"); break
+            case 63: win.openSettings("accounts"); settingsPage.openImport(); break
+            case 64: win.log("thunderbird accounts " + settingsPage.tbAccounts.length); win.shot("24-import-thunderbird"); break
+            case 65: settingsPage.page = "templates"; break
+            case 66: win.log("templates page " + settingsPage.templates.length); win.shot("25-templates"); settingsPage.closed(); break
+            case 67: win.handleRequest("mailto:someone@example.org?subject=From%20a%20link&body=Hi"); break
+            case 68: win.log("mailto composer " + composerLoader.active + " " + JSON.stringify(composerLoader.item.draft.to) + " " + composerLoader.item.draft.subject); win.shot("26-mailto"); break
+            case 69: console.warn("AUTOTEST end"); Qt.quit(); break
             }
         }
     }

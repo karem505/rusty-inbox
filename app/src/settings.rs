@@ -85,6 +85,50 @@ pub fn set(store: &Store, key: &str, value: &Value) -> Result<(), String> {
     store.set_setting(&format!("{PREFIX}{key}"), &v).map_err(|e| e.to_string())
 }
 
+/// Saved message templates: `[{id, name, subject, html}]`, newest first.
+pub fn templates(store: &Store) -> Value {
+    match store.setting(&format!("{PREFIX}templates")).ok().flatten() {
+        Some(Value::Array(a)) => Value::Array(a),
+        _ => json!([]),
+    }
+}
+
+/// Add a template (`id` 0 or missing) or replace the one with the same id. Returns its id.
+pub fn save_template(store: &Store, t: &Value) -> Result<i64, String> {
+    let name = t["name"].as_str().unwrap_or("").trim().to_string();
+    if name.is_empty() {
+        return Err("Give the template a name".into());
+    }
+    let mut list = templates(store).as_array().cloned().unwrap_or_default();
+    let mut id = t["id"].as_i64().unwrap_or(0);
+    if id <= 0 {
+        id = list.iter().filter_map(|x| x["id"].as_i64()).max().unwrap_or(0) + 1;
+    }
+    let entry = json!({
+        "id": id,
+        "name": name,
+        "subject": t["subject"].as_str().unwrap_or(""),
+        "html": t["html"].as_str().unwrap_or(""),
+    });
+    match list.iter().position(|x| x["id"].as_i64() == Some(id)) {
+        Some(i) => list[i] = entry,
+        None => list.insert(0, entry),
+    }
+    store.set_setting(&format!("{PREFIX}templates"), &Value::Array(list)).map_err(|e| e.to_string())?;
+    Ok(id)
+}
+
+pub fn delete_template(store: &Store, id: i64) -> Result<(), String> {
+    let list: Vec<Value> = templates(store)
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|x| x["id"].as_i64() != Some(id))
+        .collect();
+    store.set_setting(&format!("{PREFIX}templates"), &Value::Array(list)).map_err(|e| e.to_string())
+}
+
 /// The signature added to new mail from `email` (empty: none).
 pub fn signature(store: &Store, email: &str) -> String {
     store
@@ -120,6 +164,23 @@ mod tests {
         assert!(validate("undoSeconds", &json!(7)).is_err());
         assert!(validate("themeMode", &json!("blue")).is_err());
         assert_eq!(validate("themeMode", &json!("dark")), Ok(json!("dark")));
+    }
+
+    #[test]
+    fn templates_add_replace_delete() {
+        let s = Store::in_memory().unwrap();
+        assert_eq!(templates(&s), json!([]));
+        assert!(save_template(&s, &json!({"name": " "})).is_err());
+        let a =
+            save_template(&s, &json!({"name": "Thanks", "subject": "Thank you", "html": "<p>Thanks!</p>"})).unwrap();
+        let b = save_template(&s, &json!({"name": "Invoice", "html": "<p>Attached</p>"})).unwrap();
+        assert_eq!((a, b), (1, 2));
+        assert_eq!(templates(&s)[0]["name"], "Invoice", "newest first");
+        save_template(&s, &json!({"id": a, "name": "Thanks v2", "html": "<p>Many thanks</p>"})).unwrap();
+        assert_eq!(templates(&s).as_array().unwrap().len(), 2);
+        assert_eq!(templates(&s)[1]["name"], "Thanks v2");
+        delete_template(&s, b).unwrap();
+        assert_eq!(templates(&s).as_array().unwrap().len(), 1);
     }
 
     #[test]

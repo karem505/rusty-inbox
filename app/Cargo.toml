@@ -1,6 +1,6 @@
 [package]
 name = "rusty-inbox"
-description = "Fast, native email client for Linux with a Rust engine and a Qt 6 / QML interface"
+description = "Fast, native email client with a Rust engine and a Qt 6 / QML interface"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -17,6 +17,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 notify-rust = "4"
+dirs = "6"
 
 [build-dependencies]
 cxx-qt-build = "0.10"

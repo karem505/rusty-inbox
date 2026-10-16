@@ -1,5 +1,6 @@
 mod bridge;
 mod engine;
+mod instance;
 mod settings;
 mod theme;
 
@@ -25,6 +26,22 @@ fn main() {
         std::process::exit(add_account_cli(&path));
     }
 
+    // one copy per user: a second launch (shortcut, mailto link) goes to the running window
+    let scripted = std::env::args().any(|a| a.starts_with("--autotest") || a == "--stress");
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let request = instance::request_from_args(&args);
+    if !scripted && instance::forward(&request) {
+        return;
+    }
+    if !scripted {
+        bridge::set_initial_request(&request);
+    }
+
+    // `rusty-inbox --import-thunderbird[=a@x.com,b@y.org]`: bring Thunderbird accounts over
+    if let Some(arg) = std::env::args().find(|a| a.starts_with("--import-thunderbird")) {
+        std::process::exit(import_thunderbird_cli(arg.split_once('=').map(|x| x.1).unwrap_or("")));
+    }
+
     // must precede QGuiApplication (stock QtWebEngine requirement)
     bridge::rustyinbox_init_webengine();
 
@@ -47,6 +64,32 @@ fn main() {
     if let Some(app) = app.as_mut() {
         app.exec();
     }
+}
+
+fn import_thunderbird_cli(only: &str) -> i32 {
+    let have: Vec<String> =
+        engine::core().store().accounts().unwrap_or_default().into_iter().map(|a| a.email).collect();
+    let wanted: Vec<String> = only.split(',').map(|e| e.trim().to_lowercase()).filter(|e| !e.is_empty()).collect();
+    let found = rusty_inbox_core::thunderbird::find_accounts();
+    if found.is_empty() {
+        eprintln!("no Thunderbird accounts found");
+        return 1;
+    }
+    let emails: Vec<String> = found
+        .iter()
+        .map(|a| a.email.clone())
+        .filter(|e| if wanted.is_empty() { !have.contains(e) } else { wanted.contains(e) })
+        .collect();
+    let failed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let f = failed.clone();
+    engine::runtime().block_on(engine::import_thunderbird(emails, Default::default(), move |email, r| match r {
+        Ok(()) => println!("added {email}"),
+        Err(e) => {
+            f.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            eprintln!("{email}: {e}");
+        }
+    }));
+    i32::from(failed.load(std::sync::atomic::Ordering::SeqCst) > 0)
 }
 
 fn add_account_cli(path: &str) -> i32 {
