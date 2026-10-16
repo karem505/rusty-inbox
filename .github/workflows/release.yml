@@ -161,12 +161,17 @@ jobs:
           if ($out -ne "rusty-inbox $env:VERSION") { throw "unexpected version: $out" }
           $data = Join-Path $env:RUNNER_TEMP "ri-data"; $shots = Join-Path $env:RUNNER_TEMP "ri-shots"
           New-Item -ItemType Directory -Force $data, $shots | Out-Null
+          $qtRoot = $env:QT_ROOT_DIR
           # the packaged app must not see the runner's Qt
           Remove-Item Env:QT_PLUGIN_PATH, Env:QML2_IMPORT_PATH, Env:QT_ROOT_DIR -ErrorAction SilentlyContinue
           $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -notmatch '\\Qt\\' }) -join ';'
           $env:RUSTY_INBOX_DATA_DIR = $data; $env:QT_QPA_PLATFORM = "offscreen"
           $env:QTWEBENGINE_CHROMIUM_FLAGS = "--no-sandbox --disable-gpu"; $env:QT_QUICK_BACKEND = "software"
-          $p = Start-Process "dist\rusty-inbox\rusty-inbox.exe" -ArgumentList "--autotest=$shots" -PassThru -NoNewWindow
+          # headless run: a throw-away copy of the deploy dir plus the offscreen platform plugin (not shipped)
+          $t = Join-Path $env:RUNNER_TEMP "ri-offscreen"
+          Copy-Item "dist\rusty-inbox" $t -Recurse
+          Copy-Item "$qtRoot\plugins\platforms\qoffscreen.dll" "$t\platforms\"
+          $p = Start-Process "$t\rusty-inbox.exe" -ArgumentList "--autotest=$shots" -PassThru -NoNewWindow
           if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "autotest timed out" }
           if ($p.ExitCode -ne 0) { throw "autotest exit code $($p.ExitCode)" }
           Get-ChildItem $shots
@@ -257,10 +262,16 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           QTWEBENGINE_CHROMIUM_FLAGS: "--no-sandbox --disable-gpu"
         run: |
-          unset QT_PLUGIN_PATH QML2_IMPORT_PATH QT_ROOT_DIR DYLD_FRAMEWORK_PATH DYLD_LIBRARY_PATH
+          unset DYLD_FRAMEWORK_PATH DYLD_LIBRARY_PATH
           bin="dist/Rusty Inbox.app/Contents/MacOS/rusty-inbox"
           out=$("$bin" --version); echo "$out"
           [ "$out" = "rusty-inbox $VERSION" ]
+          # headless run: a throw-away copy of the bundle plus the offscreen platform plugin (not shipped)
+          t=$(mktemp -d); cp -R "dist/Rusty Inbox.app" "$t/"
+          cp "$QT_ROOT_DIR/plugins/platforms/libqoffscreen.dylib" "$t/Rusty Inbox.app/Contents/PlugIns/platforms/"
+          codesign --force --deep -s - "$t/Rusty Inbox.app"
+          bin="$t/Rusty Inbox.app/Contents/MacOS/rusty-inbox"
+          unset QT_PLUGIN_PATH QML2_IMPORT_PATH QT_ROOT_DIR
           data=$(mktemp -d); shots=$(mktemp -d)
           RUSTY_INBOX_DATA_DIR="$data" perl -e 'alarm 120; exec @ARGV' "$bin" --autotest="$shots"
           ls "$shots"; ls "$shots"/*.png >/dev/null
