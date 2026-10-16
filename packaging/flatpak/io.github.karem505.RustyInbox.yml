@@ -29,7 +29,7 @@ modules:
       append-path: /usr/lib/sdk/rust-stable/bin
       env:
         CARGO_HOME: /run/build/rusty-inbox/cargo
-        QMAKE: /usr/bin/qmake6
+        QMAKE: /usr/bin/qmake
         RUSTY_INBOX_DESKTOP_ID: io.github.karem505.RustyInbox
     build-commands:
       - cargo --offline build --release --locked -p rusty-inbox

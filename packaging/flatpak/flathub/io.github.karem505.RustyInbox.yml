@@ -1,0 +1,49 @@
+# Flathub variant: builds the tagged release from git.
+# Before submitting: set `commit` to the full SHA of tag v0.1.0 and copy cargo-sources.json next to this file.
+app-id: io.github.karem505.RustyInbox
+runtime: org.kde.Platform
+runtime-version: '6.11'
+sdk: org.kde.Sdk
+base: io.qt.qtwebengine.BaseApp
+base-version: '6.11'
+command: rusty-inbox
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --filesystem=xdg-state/omarchy:ro
+  - --filesystem=~/.thunderbird:ro
+  - --filesystem=~/.var/app/org.mozilla.thunderbird:ro
+cleanup-commands:
+  - /app/cleanup-BaseApp.sh
+modules:
+  - name: rusty-inbox
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/rusty-inbox/cargo
+        QMAKE: /usr/bin/qmake
+        RUSTY_INBOX_DESKTOP_ID: io.github.karem505.RustyInbox
+    build-commands:
+      - cargo --offline build --release --locked -p rusty-inbox
+      - install -Dm755 target/release/rusty-inbox /app/bin/rusty-inbox
+      - install -Dm644 packaging/flatpak/io.github.karem505.RustyInbox.desktop -t /app/share/applications
+      - install -Dm644 packaging/flatpak/io.github.karem505.RustyInbox.metainfo.xml -t /app/share/metainfo
+      - |
+        for s in 16 22 24 32 48 64 96 128 256 512; do
+          install -Dm644 app/packaging/icons/rusty-inbox-$s.png \
+            /app/share/icons/hicolor/${s}x${s}/apps/io.github.karem505.RustyInbox.png
+        done
+    sources:
+      - type: git
+        url: https://github.com/karem505/rusty-inbox.git
+        tag: v0.1.0
+        commit: TO_BE_FILLED
+      - cargo-sources.json
