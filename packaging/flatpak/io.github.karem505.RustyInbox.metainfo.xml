@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.karem505.RustyInbox</id>
+  <name>Rusty Inbox</name>
+  <summary>Fast native email client</summary>
+  <developer id="io.github.karem505">
+    <name>Karem Aboelmakarem</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <description>
+    <p>Rusty Inbox is an open-source desktop mail client for IMAP and SMTP accounts: Gmail (with an app password), Fastmail, iCloud, Yahoo, cPanel and any other standard mail server. The mail engine is native Rust and the interface is Qt Quick, so the window starts quickly and stays light on memory.</p>
+    <p>Your mail is stored locally on your computer. There is no account with the developer, no cloud service in between and no telemetry.</p>
+    <p>Features:</p>
+    <ul>
+      <li>Smart Inbox: mail from people first, with notifications and newsletters grouped separately</li>
+      <li>All accounts in one unified inbox</li>
+      <li>Compose, reply, reply all and forward with a rich-text editor</li>
+      <li>Undo Send and Send Later</li>
+      <li>Templates for the replies you write every week</li>
+      <li>Drafts that sync with your mail provider</li>
+      <li>Done, Snooze, Pin and bulk actions, each with undo</li>
+      <li>Keyboard shortcuts for every action</li>
+      <li>Follows your desktop theme and font</li>
+      <li>Import of accounts from Thunderbird</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.karem505.RustyInbox.desktop</launchable>
+  <url type="homepage">https://github.com/karem505/rusty-inbox</url>
+  <url type="bugtracker">https://github.com/karem505/rusty-inbox/issues</url>
+  <url type="vcs-browser">https://github.com/karem505/rusty-inbox</url>
+  <provides>
+    <binary>rusty-inbox</binary>
+  </provides>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+  <categories>
+    <category>Network</category>
+    <category>Email</category>
+  </categories>
+  <keywords>
+    <keyword>email</keyword>
+    <keyword>mail</keyword>
+    <keyword>inbox</keyword>
+    <keyword>imap</keyword>
+    <keyword>smtp</keyword>
+  </keywords>
+  <branding>
+    <color type="primary" scheme_preference="light">#f6c9a8</color>
+    <color type="primary" scheme_preference="dark">#5a2d12</color>
+  </branding>
+  <content_rating type="oars-1.1"/>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/karem505/rusty-inbox/main/docs/screenshots/smart-inbox.jpg</image>
+      <caption>Smart Inbox groups mail from people, notifications and newsletters</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/karem505/rusty-inbox/main/docs/screenshots/reader.jpg</image>
+      <caption>Reading a message</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/karem505/rusty-inbox/main/docs/screenshots/composer.jpg</image>
+      <caption>Composer with Undo Send and Send Later</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/karem505/rusty-inbox/main/docs/screenshots/bulk-actions.jpg</image>
+      <caption>Bulk actions on selected messages</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/karem505/rusty-inbox/main/docs/screenshots/light-theme.jpg</image>
+      <caption>Light theme</caption>
+    </screenshot>
+  </screenshots>
+  <releases>
+    <release version="0.1.0" date="2026-10-17">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

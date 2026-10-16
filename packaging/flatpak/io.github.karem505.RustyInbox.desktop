@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+Name=Rusty Inbox
+GenericName=Email Client
+Comment=Fast native email client built with Rust and Qt/QML
+Exec=rusty-inbox %u
+Icon=io.github.karem505.RustyInbox
+Terminal=false
+Categories=Network;Email;Qt;
+Keywords=email;mail;inbox;imap;smtp;rust;qt;
+MimeType=x-scheme-handler/mailto;
+StartupNotify=true
+StartupWMClass=io.github.karem505.RustyInbox
+Actions=compose;
+
+[Desktop Action compose]
+Name=New Message
+Exec=rusty-inbox --compose

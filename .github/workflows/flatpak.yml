@@ -1,0 +1,35 @@
+name: Flatpak
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  flatpak:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.11
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bundle name
+        id: v
+        run: |
+          VER=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')
+          echo "bundle=rusty-inbox-${VER}-x86_64.flatpak" >> "$GITHUB_OUTPUT"
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: ${{ steps.v.outputs.bundle }}
+          manifest-path: packaging/flatpak/io.github.karem505.RustyInbox.yml
+          arch: x86_64
+          cache-key: flatpak-builder-${{ github.sha }}
+          restore-cache: true
+      - name: Attach to the GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.v.outputs.bundle }}
