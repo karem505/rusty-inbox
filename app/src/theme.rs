@@ -15,7 +15,12 @@ pub fn theme_files() -> Vec<PathBuf> {
     }
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let state = std::env::var_os("XDG_STATE_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".local/state"));
-    vec![state.join("omarchy/current/theme/colors.toml"), home.join(".config/omarchy/current/theme/colors.toml")]
+    vec![
+        state.join("omarchy/current/theme/colors.toml"),
+        // inside a Flatpak XDG_STATE_HOME points at the app's private dir; the host's is mounted read-only here
+        home.join(".local/state/omarchy/current/theme/colors.toml"),
+        home.join(".config/omarchy/current/theme/colors.toml"),
+    ]
 }
 
 /// `key = "value"` lines of a flat TOML file (all Omarchy's colors.toml uses).

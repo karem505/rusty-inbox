@@ -8,6 +8,11 @@ mod theme;
 pub const APP_NAME: &str = "Rusty Inbox";
 /// Desktop entry / Wayland app id (`rusty-inbox.desktop`, window class `rusty-inbox`).
 pub const APP_ID: &str = "rusty-inbox";
+/// Desktop file id; packaging (Flatpak) overrides it at compile time via `RUSTY_INBOX_DESKTOP_ID`.
+pub const DESKTOP_ID: &str = match option_env!("RUSTY_INBOX_DESKTOP_ID") {
+    Some(id) => id,
+    None => APP_ID,
+};
 
 use cxx_qt_lib::{QFont, QGuiApplication, QQmlApplicationEngine, QString, QUrl};
 
@@ -60,7 +65,7 @@ fn main() {
     if let Some(mut a) = app.as_mut() {
         a.as_mut().set_application_name(&QString::from(APP_NAME));
         a.as_mut().set_application_display_name(&QString::from(APP_NAME));
-        QGuiApplication::set_desktop_file_name(&QString::from(APP_ID));
+        QGuiApplication::set_desktop_file_name(&QString::from(DESKTOP_ID));
         // the system font (Omarchy: `omarchy font current`) for every Text, not only Controls
         if let Some(family) = theme::current()["font"].as_str() {
             let mut f: QFont = a.font();
