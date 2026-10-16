@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install Rusty Inbox for the current user: binary, launcher entry and the full icon set.
+# Install Rusty Inbox for the current user: binary, launcher entry, icons and the mailto handler.
 # Usage: app/packaging/install-user.sh   (after `cargo build --release`)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
@@ -18,3 +18,7 @@ done
 command -v update-desktop-database >/dev/null && update-desktop-database "$PREFIX/share/applications" || true
 command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -f -t "$ICONS" || true
 echo "installed $PREFIX/bin/rusty-inbox (+ desktop entry, ${ICONS})"
+# open mailto: links in Rusty Inbox (skip with NO_MAILTO=1)
+if [ -z "${NO_MAILTO:-}" ] && command -v xdg-mime >/dev/null; then
+  xdg-mime default rusty-inbox.desktop x-scheme-handler/mailto && echo "mailto: links now open in Rusty Inbox"
+fi
