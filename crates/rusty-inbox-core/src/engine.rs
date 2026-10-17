@@ -61,7 +61,14 @@ struct Inner {
     /// open IMAP connections per account, reused between operations: mail servers (cPanel's
     /// firewall in particular) drop clients that open several connections in a short time
     pool: Mutex<HashMap<String, Vec<imap::Connection>>>,
+    /// when the next new connection to each IMAP host may start (see `NEW_CONNECTION_GAP`)
+    next_connect: Mutex<HashMap<String, std::time::Instant>>,
 }
+
+/// Minimum time between new IMAP connections to one host. Hosting firewalls (cPanel's in
+/// particular) block an IP for minutes after a few logins in quick succession, so several
+/// accounts on one server are connected one after another instead of at once.
+pub const NEW_CONNECTION_GAP: std::time::Duration = std::time::Duration::from_secs(12);
 
 #[derive(Clone)]
 pub struct Engine {
@@ -79,6 +86,7 @@ impl Engine {
                 high_water: Mutex::new(HashMap::new()),
                 on_new_mail: Mutex::new(None),
                 pool: Mutex::new(HashMap::new()),
+                next_connect: Mutex::new(HashMap::new()),
             }),
         })
     }
@@ -179,7 +187,21 @@ impl Engine {
         let store = &self.inner.store;
         let acct = store.account(email)?.ok_or_else(|| anyhow::anyhow!("no account {email}"))?;
         let pw = store.secret(&format!("password:{email}"))?.ok_or_else(|| anyhow::anyhow!("no password"))?;
+        let wait = self.reserve_connect_slot(&acct.imap_host);
+        if !wait.is_zero() {
+            tracing::debug!("waiting {wait:?} before connecting to {}", acct.imap_host);
+            tokio::time::sleep(wait).await;
+        }
         imap::Connection::connect(&acct, &pw).await
+    }
+
+    /// Book the next connection slot for `host` and return how long to wait for it.
+    fn reserve_connect_slot(&self, host: &str) -> std::time::Duration {
+        let now = std::time::Instant::now();
+        let mut next = self.inner.next_connect.lock();
+        let at = next.get(host).copied().filter(|t| *t > now).unwrap_or(now);
+        next.insert(host.to_string(), at + NEW_CONNECTION_GAP);
+        at - now
     }
 
     /// Hand a connection back for reuse (at most two idle per account; extra ones log out).
@@ -654,6 +676,17 @@ mod tests {
         assert!(e.unqueue(id).is_some(), "a failed message can be edited again");
         e.discard_draft(id, &d).await;
         assert!(e.store().outgoing(id).unwrap().is_none());
+    }
+
+    #[test]
+    fn new_connections_to_one_host_are_spaced() {
+        let (e, _d, _ids) = engine();
+        assert!(e.reserve_connect_slot("mail.example.com").is_zero());
+        let second = e.reserve_connect_slot("mail.example.com");
+        assert!(second > NEW_CONNECTION_GAP - std::time::Duration::from_secs(1) && second <= NEW_CONNECTION_GAP);
+        assert!(e.reserve_connect_slot("imap.other.org").is_zero(), "other hosts are independent");
+        let third = e.reserve_connect_slot("mail.example.com");
+        assert!(third > NEW_CONNECTION_GAP, "queued behind the second");
     }
 
     #[test]

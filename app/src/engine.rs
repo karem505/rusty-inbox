@@ -89,6 +89,9 @@ pub fn on_outbox(report: impl Fn(i64, String, Result<(), String>) + Send + Sync 
     });
 }
 
+/// Longest one account's sync pass may take before it is abandoned until the next pass.
+const SYNC_PASS_LIMIT: Duration = Duration::from_secs(10 * 60);
+
 /// Run a sync pass over every account now and then every `poll`, calling `notify` after each pass.
 /// With `RUSTY_INBOX_OFFLINE` set, only the snooze clock runs (no network).
 pub fn on_synced(notify: impl Fn() + Send + Sync + 'static) {
@@ -103,9 +106,15 @@ pub fn on_synced(notify: impl Fn() + Send + Sync + 'static) {
             } else {
                 let accounts = core().store().accounts().unwrap_or_default();
                 for a in accounts {
-                    match core().sync_account(&a.email).await {
-                        Ok(n) => tracing::info!("synced {}: {n} new", a.email),
-                        Err(e) => tracing::warn!("sync {}: {e:#}", a.email),
+                    // one stuck account must not stop the others (or the next passes)
+                    // (its own task, so a panic in one account's sync cannot end this loop)
+                    let email = a.email.clone();
+                    let pass = tokio::spawn(async move { core().sync_account(&email).await });
+                    match tokio::time::timeout(SYNC_PASS_LIMIT, pass).await {
+                        Ok(Ok(Ok(n))) => tracing::info!("synced {}: {n} new", a.email),
+                        Ok(Ok(Err(e))) => tracing::warn!("sync {}: {e:#}", a.email),
+                        Ok(Err(e)) => tracing::error!("sync {} crashed: {e}", a.email),
+                        Err(_) => tracing::warn!("sync {}: gave up after {:?}", a.email, SYNC_PASS_LIMIT),
                     }
                 }
                 notify();

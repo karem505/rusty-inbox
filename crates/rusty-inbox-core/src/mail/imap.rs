@@ -38,24 +38,37 @@ async fn timed<T>(what: &str, f: impl std::future::Future<Output = Result<T>>) -
 
 impl Connection {
     pub async fn connect(acct: &Account, password: &str) -> Result<Connection> {
+        Self::connect_within(acct, password, CONNECT_TIMEOUT).await
+    }
+
+    /// Connect and log in; the TCP connect and the TLS handshake each get `limit`. A server (or
+    /// its firewall) can accept the connection and then never answer the handshake: without a
+    /// limit that hangs the caller forever.
+    pub async fn connect_within(acct: &Account, password: &str, limit: Duration) -> Result<Connection> {
         let addr = (acct.imap_host.as_str(), acct.imap_port);
-        let tcp = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr))
+        let host = || format!("{}:{}", acct.imap_host, acct.imap_port);
+        let tcp = tokio::time::timeout(limit, TcpStream::connect(addr))
             .await
-            .map_err(|_| anyhow!("connect to {}:{} timed out", acct.imap_host, acct.imap_port))?
-            .with_context(|| format!("connect to {}:{}", acct.imap_host, acct.imap_port))?;
+            .map_err(|_| anyhow!("connect to {} timed out", host()))?
+            .with_context(|| format!("connect to {}", host()))?;
         tcp.set_nodelay(true).ok();
+        let handshake = |tcp| async move {
+            tokio::time::timeout(limit, tls::connector().connect(tls::server_name(&acct.imap_host)?, tcp))
+                .await
+                .map_err(|_| anyhow!("TLS handshake with {} timed out", host()))?
+                .map_err(anyhow::Error::from)
+        };
         let stream: Box<dyn Io> = match acct.imap_security.as_str() {
-            "tls" => {
-                let tls = tls::connector().connect(tls::server_name(&acct.imap_host)?, tcp).await?;
-                Box::new(tls)
-            }
+            "tls" => Box::new(handshake(tcp).await?),
             "starttls" => {
                 let mut client = async_imap::Client::new(tcp);
-                let _greeting = client.read_response().await?;
-                client.run_command_and_check_ok("STARTTLS", None).await?;
-                let tcp = client.into_inner();
-                let tls = tls::connector().connect(tls::server_name(&acct.imap_host)?, tcp).await?;
-                Box::new(tls)
+                tokio::time::timeout(limit, async {
+                    client.read_response().await?;
+                    client.run_command_and_check_ok("STARTTLS", None).await
+                })
+                .await
+                .map_err(|_| anyhow!("STARTTLS with {} timed out", host()))??;
+                Box::new(handshake(client.into_inner()).await?)
             }
             _ => Box::new(tcp),
         };
@@ -429,6 +442,29 @@ fn to_message(f: &Fetch, account: &str, folder_id: i64, full: bool) -> Option<cr
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn a_silent_server_cannot_hang_the_connect() {
+        // accepts TCP, never answers the TLS handshake (what a throttling firewall does)
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (_s, _) = l.accept().await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        });
+        let acct = crate::store::Account {
+            email: "a@example.com".into(),
+            imap_host: "127.0.0.1".into(),
+            imap_port: port,
+            imap_security: "tls".into(),
+            username: "a".into(),
+            ..Default::default()
+        };
+        let t = std::time::Instant::now();
+        let r = super::Connection::connect_within(&acct, "pw", std::time::Duration::from_millis(500)).await;
+        assert!(format!("{:#}", r.err().expect("must fail")).contains("timed out"));
+        assert!(t.elapsed() < std::time::Duration::from_secs(5));
+    }
+
     use super::*;
 
     #[test]

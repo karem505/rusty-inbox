@@ -29,8 +29,7 @@ fn main() {
         );
         return;
     }
-    let filter = std::env::var("RUSTY_INBOX_LOG").unwrap_or_else(|_| "info".into());
-    let _ = tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).try_init();
+    init_logging();
 
     // scripted test runs perform real actions (done, trash...): never let them reach a mail server
     if std::env::args().any(|a| a.starts_with("--autotest") || a == "--stress") {
@@ -81,6 +80,31 @@ fn main() {
     if let Some(app) = app.as_mut() {
         app.exec();
     }
+}
+
+/// Log to stderr and to `rusty-inbox.log` in the platform state dir (`~/.local/state/rusty-inbox`
+/// on Linux), which is where to look when mail stops arriving. The file restarts past 5 MB.
+fn init_logging() {
+    use tracing_subscriber::fmt::writer::MakeWriterExt;
+    let filter = std::env::var("RUSTY_INBOX_LOG").unwrap_or_else(|_| "info".into());
+    let dir = dirs::state_dir().or_else(dirs::data_local_dir).unwrap_or_else(std::env::temp_dir).join(APP_ID);
+    let path = dir.join("rusty-inbox.log");
+    let file = std::fs::create_dir_all(&dir).ok().and_then(|_| {
+        let big = std::fs::metadata(&path).map(|m| m.len() > 5 << 20).unwrap_or(false);
+        std::fs::OpenOptions::new().create(true).append(!big).write(true).truncate(big).open(&path).ok()
+    });
+    let builder = tracing_subscriber::fmt().with_env_filter(filter).with_ansi(false);
+    let _ = match file {
+        Some(f) => builder.with_writer(std::io::stderr.and(std::sync::Mutex::new(f))).try_init(),
+        None => builder.with_writer(std::io::stderr).try_init(),
+    };
+    // panics in background threads would otherwise only reach a stderr nobody reads
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current().name().unwrap_or("?").to_string();
+        tracing::error!("panic in thread {thread}: {info}");
+        default_hook(info);
+    }));
 }
 
 fn import_thunderbird_cli(only: &str) -> i32 {
