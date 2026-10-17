@@ -11,6 +11,7 @@ Rectangle {
     property var spec: ({ list: "inbox" })
     signal select(var spec)
     signal openSettings(string page)
+    property string updateVersion: ""
     signal compose()
 
     property var expanded: ({})
@@ -49,6 +50,7 @@ Rectangle {
         property string icon
         property int count: 0
         property bool countIsUnread: true
+        property string note: ""       // short text instead of a count (e.g. "Update")
         property int indent: 0
         width: parent ? parent.width : 0
         height: 32
@@ -105,8 +107,8 @@ Rectangle {
             anchors.right: parent.right
             anchors.rightMargin: 10
             anchors.verticalCenter: parent.verticalCenter
-            visible: item.count > 0
-            text: item.count
+            visible: item.count > 0 || item.note !== ""
+            text: item.note !== "" ? item.note : item.count
             font.pixelSize: 12
             font.weight: item.countIsUnread ? Font.DemiBold : Font.Normal
             color: item.countIsUnread ? Theme.accent : Theme.textMuted
@@ -182,7 +184,8 @@ Rectangle {
             target: ({ list: "__settings" })
             label: qsTr("Settings")
             icon: "settings"
-            action: () => root.openSettings("general")
+            note: root.updateVersion !== "" ? qsTr("Update %1").arg(root.updateVersion) : ""
+            action: () => root.openSettings(root.updateVersion !== "" ? "updates" : "general")
         }
     }
 

@@ -47,6 +47,8 @@ native Rust and the interface is Qt Quick, not a browser shell.
   you switch themes.
 - **Import from Thunderbird.** Accounts, servers and saved passwords come over in one click,
   provided the profile has no primary password.
+- **In-app updates.** *Settings → Updates* checks for new releases daily or weekly, shows what
+  changed and installs with one click, verified against the release checksums.
 - **Full HTML mail.** Each message renders in an isolated, script-free frame. Remote images
   load, and links open in your browser.
 - **Local and private.** Mail is cached in SQLite on your machine. Passwords live in a local
@@ -91,6 +93,20 @@ Windows (PowerShell):
 ```powershell
 irm https://raw.githubusercontent.com/karem505/rusty-inbox/main/scripts/install.ps1 | iex
 ```
+
+### Updates
+
+**Settings → Updates** shows the installed version, checks GitHub for a new release (daily or
+weekly, or on demand) and shows what changed. How the update is applied depends on the install:
+
+- **AppImage and Linux binary:** downloaded, checked against `SHA256SUMS` and swapped in place;
+  restart to use it. Can also install automatically in the background.
+- **Windows installer:** runs the new installer silently and reopens the app.
+- **macOS:** downloads and opens the new disk image.
+- **Flatpak, AUR / distribution packages, source builds:** the app tells you a new version is out;
+  update with `flatpak update`, your package manager or `git pull`.
+
+`rusty-inbox --check-update` does the same check from a terminal.
 
 ### Adding accounts
 
@@ -150,8 +166,9 @@ Tests: `cargo test --workspace`. UI smoke test, run off-screen against a copy of
 
 ## Privacy
 
-Rusty Inbox talks only to the mail servers you add. It has no analytics, no crash reporting and
-no servers of its own. Your mail, settings and passwords stay in your data directory:
+Rusty Inbox talks only to the mail servers you add, plus GitHub's release API when it checks for
+updates (turn that off in Settings → Updates). It has no analytics, no crash reporting and no
+servers of its own. Your mail, settings and passwords stay in your data directory:
 `~/.local/share/rusty-inbox` on Linux, `~/Library/Application Support/rusty-inbox` on macOS,
 `%APPDATA%\rusty-inbox` on Windows.
 

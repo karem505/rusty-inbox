@@ -4,6 +4,7 @@ mod instance;
 mod platform;
 mod settings;
 mod theme;
+mod updater;
 
 /// Product name shown in the window title and notifications (rename here).
 pub const APP_NAME: &str = "Rusty Inbox";
@@ -24,9 +25,30 @@ fn main() {
     }
     if std::env::args().any(|a| a == "--help" || a == "-h") {
         println!(
-            "{APP_NAME} {}\n\nUsage: {APP_ID} [mailto:URL] [--compose] [--import-thunderbird[=EMAILS]] [--add-account=FILE] [--version]",
+            "{APP_NAME} {}\n\nUsage: {APP_ID} [mailto:URL] [--compose] [--import-thunderbird[=EMAILS]] [--add-account=FILE] [--check-update] [--version]",
             env!("CARGO_PKG_VERSION")
         );
+        return;
+    }
+    if std::env::args().any(|a| a == "--check-update") {
+        // what the Updates page would find, without opening the app
+        let m = updater::detect();
+        match updater::fetch_latest() {
+            Ok(r) if r.version > updater::current_version() => {
+                println!(
+                    "{APP_NAME} {} is available (installed: {}, as {}): {}",
+                    r.version,
+                    env!("CARGO_PKG_VERSION"),
+                    m.label(),
+                    r.url
+                )
+            }
+            Ok(_) => println!("{APP_NAME} {} is the latest version ({})", env!("CARGO_PKG_VERSION"), m.label()),
+            Err(e) => {
+                eprintln!("update check failed: {e}");
+                std::process::exit(1);
+            }
+        }
         return;
     }
     init_logging();

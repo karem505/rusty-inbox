@@ -78,6 +78,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.1.2" date="2026-10-17">
+      <description>
+        <p>In-app updates and a reader fix:</p>
+        <ul>
+          <li>Settings → Updates: check for new versions daily, weekly or on demand, read what changed, and install with one click (AppImage, Linux binary, Windows, macOS)</li>
+          <li>Optional automatic installs in the background for AppImage and Linux binary installs</li>
+          <li>Messages already downloaded open at once, even while mail is syncing</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-10-17">
       <description>
         <p>Bug fixes:</p>

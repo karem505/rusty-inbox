@@ -56,3 +56,5 @@ Root: HKCU; Subkey: "Software\RegisteredApplications"; ValueName: "Rusty Inbox";
 
 [Run]
 Filename: "{app}\rusty-inbox.exe"; Description: "Launch Rusty Inbox"; Flags: nowait postinstall skipifsilent
+; in-app updates run this installer with /SILENT: start the new version when it is done
+Filename: "{app}\rusty-inbox.exe"; Flags: nowait; Check: WizardSilent

@@ -34,6 +34,7 @@ ApplicationWindow {
     property var threads: []
     property var sidebarModel: ({ inbox: 0, pinned: 0, snoozed: 0, drafts: 0, categories: [], accounts: [] })
     readonly property var core: backend
+    property string updateVersion: ""   // a newer release found by the update checker
     property int openId: -1
     // preferences from Settings (kept in sync through settings_changed)
     property var prefs: JSON.parse(backend.settings_json())
@@ -65,6 +66,15 @@ ApplicationWindow {
                 win.pendingRespond = ""
                 if (msgs.length) Qt.callLater(() => win.compose(kind, msgs[msgs.length - 1].id))
             }
+        }
+        onUpdate_available: (version) => {
+            win.updateVersion = version
+            toast.showAction(qsTr("%1 %2 is available").arg(backend.app_name()).arg(version), qsTr("View"), () => win.openSettings("updates"), 12000)
+        }
+        onUpdate_changed: (json) => {
+            const u = JSON.parse(json)
+            win.updateVersion = (u.state === "available" || u.state === "downloading" || u.state === "ready") && u.latest ? u.latest.version : ""
+            if (u.state === "ready" && u.quit) Qt.quit()     // the Windows installer takes over
         }
         onOpen_requested: (threadId) => {
             win.showWindow()
@@ -424,6 +434,7 @@ ApplicationWindow {
                 visible: !(composerLoader.active && win.composeExpanded)
                 onCompose: win.compose("new", 0)
                 appName: backend.app_name()
+                updateVersion: win.updateVersion
                 onOpenSettings: (pg) => win.openSettings(pg)
                 Layout.preferredWidth: 280
                 Layout.fillHeight: true
@@ -648,7 +659,11 @@ ApplicationWindow {
             case 72: { const d = win.threads.find(t => t.done); if (d) { win.picked.d = d.id; win.perform("done", [d.id]) } break }
             case 73: win.log("done row toggled back (pending) " + (win.picked.d ? !win.isDone(win.picked.d) : "none")); win.undo(); break
             case 74: win.log("after undo still done " + (win.picked.d ? win.isDone(win.picked.d) : "none")); win.toggleShowDone(); break
-            case 75: win.log("inbox hidden done again " + win.threads.length); console.warn("AUTOTEST end"); Qt.quit(); break
+            case 75: win.log("inbox hidden done again " + win.threads.length); win.openSettings("updates"); backend.check_update(); break
+            case 76: { const u = JSON.parse(backend.update_json()); win.log("update " + u.state + " " + (u.latest ? u.latest.version : "-") + " method " + u.method.id); win.shot("28-updates"); break }
+            case 77: settingsPage.shown = false; break
+            case 78: win.shot("29-update-badge"); break
+            case 79: console.warn("AUTOTEST end"); Qt.quit(); break
             }
         }
     }

@@ -18,6 +18,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 notify-rust = "4"
 dirs = "6"
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+semver = "1"
+sha2 = "0.10"
 
 [build-dependencies]
 cxx-qt-build = "0.10"

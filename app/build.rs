@@ -1,6 +1,6 @@
 use cxx_qt_build::{CxxQtBuilder, QmlFile, QmlModule};
 
-const ICONS: [&str; 46] = [
+const ICONS: [&str; 47] = [
     "account",
     "archive",
     "back",
@@ -47,6 +47,7 @@ const ICONS: [&str; 46] = [
     "trash",
     "undo",
     "unread",
+    "update",
 ];
 
 fn main() {

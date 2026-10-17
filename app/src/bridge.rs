@@ -125,6 +125,22 @@ pub mod qobject {
         #[qinvokable]
         fn latest_message_id(self: &Backend, thread_id: i64) -> i64;
 
+        /// The Updates page: current version, install type, check / download state (JSON).
+        #[qinvokable]
+        fn update_json(self: &Backend) -> QString;
+
+        /// Look for a new release now; the result arrives as `update_changed`.
+        #[qinvokable]
+        fn check_update(self: Pin<&mut Backend>);
+
+        /// Download and apply the release found by the last check (progress via `update_changed`).
+        #[qinvokable]
+        fn install_update(self: Pin<&mut Backend>);
+
+        /// Start the installed update after this process quits. False if there is nothing to start.
+        #[qinvokable]
+        fn restart_into_update(self: &Backend) -> bool;
+
         /// Ask the compositor to focus our window (Hyprland: no focus stealing without this).
         #[qinvokable]
         fn focus_native(self: &Backend);
@@ -203,6 +219,14 @@ pub mod qobject {
         #[qsignal]
         fn mail_changed(self: Pin<&mut Backend>);
 
+        /// The update state changed (JSON, see `update_json`).
+        #[qsignal]
+        fn update_changed(self: Pin<&mut Backend>, json: QString);
+
+        /// A background check found a newer release.
+        #[qsignal]
+        fn update_available(self: Pin<&mut Backend>, version: QString);
+
         /// A new-mail notification was clicked.
         #[qsignal]
         fn open_requested(self: Pin<&mut Backend>, thread_id: i64);
@@ -246,6 +270,10 @@ impl qobject::Backend {
             let qt = qt_notify.clone();
             std::thread::spawn(move || show_notification(n, qt));
         });
+        let report = update_reporter(self.qt_thread());
+        if std::env::var_os("RUSTY_INBOX_OFFLINE").is_none() {
+            crate::updater::start_auto(report);
+        }
         let qt_inst = self.qt_thread();
         crate::instance::listen(move |req, token| {
             let _ = qt_inst.queue(move |mut obj: Pin<&mut qobject::Backend>| {
@@ -460,6 +488,26 @@ impl qobject::Backend {
         engine::core().store().thread_messages(thread_id).ok().and_then(|m| m.last().map(|m| m.id)).unwrap_or(0)
     }
 
+    fn update_json(&self) -> QString {
+        QString::from(&crate::updater::status_json().to_string())
+    }
+
+    fn check_update(self: Pin<&mut Self>) {
+        let report = update_reporter(self.qt_thread());
+        std::thread::spawn(move || {
+            crate::updater::check(&|| report(false));
+        });
+    }
+
+    fn install_update(self: Pin<&mut Self>) {
+        let report = update_reporter(self.qt_thread());
+        std::thread::spawn(move || crate::updater::install_latest(&|| report(false)));
+    }
+
+    fn restart_into_update(&self) -> bool {
+        crate::updater::restart()
+    }
+
     fn focus_native(&self) {
         crate::platform::focus_own_window();
     }
@@ -549,6 +597,21 @@ pub fn set_initial_request(r: &str) {
 fn draft_of(json: &QString) -> rusty_inbox_core::compose::Draft {
     let v: serde_json::Value = serde_json::from_str(&json.to_string()).unwrap_or_default();
     rusty_inbox_core::compose::Draft::from_json(&v)
+}
+
+/// Sends the update state to QML: `update_changed` always, `update_available` when `newly` found.
+fn update_reporter(qt: cxx_qt::CxxQtThread<qobject::Backend>) -> impl Fn(bool) + Send + Sync + 'static {
+    move |newly| {
+        let st = crate::updater::status_json();
+        let json = st.to_string();
+        let version = st["latest"]["version"].as_str().unwrap_or_default().to_string();
+        let _ = qt.queue(move |mut obj: Pin<&mut qobject::Backend>| {
+            obj.as_mut().update_changed(QString::from(&json));
+            if newly {
+                obj.as_mut().update_available(QString::from(&version));
+            }
+        });
+    }
 }
 
 /// Show one desktop notification and wait (on this helper thread) for a click.

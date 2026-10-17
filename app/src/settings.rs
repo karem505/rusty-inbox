@@ -26,6 +26,10 @@ pub fn defaults() -> Value {
         "notifications": true,
         "notificationPreview": true, // show subject and text; off = only the sender
         "trayUnreadDot": true,       // unread dot on the status-bar icon
+        // updates
+        "autoUpdateCheck": true,     // look for a new release in the background
+        "updateCheckDays": 1,        // how often: every day or every week
+        "autoInstallUpdates": false, // download and apply it too (AppImage / binary installs)
     })
 }
 
@@ -37,6 +41,7 @@ pub fn choices(key: &str) -> Option<Vec<Value>> {
         "syncMinutes" => v(&[json!(1), json!(2), json!(5), json!(15), json!(30)]),
         "themeMode" => v(&[json!("system"), json!("light"), json!("dark")]),
         "density" => v(&[json!("comfortable"), json!("compact")]),
+        "updateCheckDays" => v(&[json!(1), json!(7)]),
         _ => None,
     }
 }

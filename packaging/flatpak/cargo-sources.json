@@ -1406,6 +1406,32 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/http/http-1.5.0.crate",
+        "sha256": "918d3568bebf352712bc2ef3d46a8bcf1a75b373be6539de198e9105cbbf9ce0",
+        "dest": "cargo/vendor/http-1.5.0"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"918d3568bebf352712bc2ef3d46a8bcf1a75b373be6539de198e9105cbbf9ce0\", \"files\": {}}",
+        "dest": "cargo/vendor/http-1.5.0",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/httparse/httparse-1.10.1.crate",
+        "sha256": "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87",
+        "dest": "cargo/vendor/httparse-1.10.1"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87\", \"files\": {}}",
+        "dest": "cargo/vendor/httparse-1.10.1",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/httpdate/httpdate-1.0.3.crate",
         "sha256": "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9",
         "dest": "cargo/vendor/httpdate-1.0.3"
@@ -3317,6 +3343,32 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/ureq/ureq-3.4.2.crate",
+        "sha256": "9a7ac20be9b7726e0bbdbf974c059676d9acb1cd414961f570a4e8231cacd7fc",
+        "dest": "cargo/vendor/ureq-3.4.2"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"9a7ac20be9b7726e0bbdbf974c059676d9acb1cd414961f570a4e8231cacd7fc\", \"files\": {}}",
+        "dest": "cargo/vendor/ureq-3.4.2",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/ureq-proto/ureq-proto-0.6.4.crate",
+        "sha256": "f86fd172ccca569e458f61b6bdd6220965a9ef36e672a6852953b51a0e1583be",
+        "dest": "cargo/vendor/ureq-proto-0.6.4"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"f86fd172ccca569e458f61b6bdd6220965a9ef36e672a6852953b51a0e1583be\", \"files\": {}}",
+        "dest": "cargo/vendor/ureq-proto-0.6.4",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/url/url-2.5.8.crate",
         "sha256": "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed",
         "dest": "cargo/vendor/url-2.5.8"
@@ -3325,6 +3377,19 @@
         "type": "inline",
         "contents": "{\"package\": \"ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed\", \"files\": {}}",
         "dest": "cargo/vendor/url-2.5.8",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/utf8-zero/utf8-zero-0.8.1.crate",
+        "sha256": "b8c0a043c9540bae7c578c88f91dda8bd82e59ae27c21baca69c8b191aaf5a6e",
+        "dest": "cargo/vendor/utf8-zero-0.8.1"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"b8c0a043c9540bae7c578c88f91dda8bd82e59ae27c21baca69c8b191aaf5a6e\", \"files\": {}}",
+        "dest": "cargo/vendor/utf8-zero-0.8.1",
         "dest-filename": ".cargo-checksum.json"
     },
     {
@@ -3481,6 +3546,19 @@
         "type": "inline",
         "contents": "{\"package\": \"23f0c9c52aa7cd7d77769a4cfe2a9adb1b331f489a41d912ce14513d5ab995c6\", \"files\": {}}",
         "dest": "cargo/vendor/wasm-bindgen-shared-0.2.129",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/webpki-roots/webpki-roots-1.0.9.crate",
+        "sha256": "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a",
+        "dest": "cargo/vendor/webpki-roots-1.0.9"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a\", \"files\": {}}",
+        "dest": "cargo/vendor/webpki-roots-1.0.9",
         "dest-filename": ".cargo-checksum.json"
     },
     {

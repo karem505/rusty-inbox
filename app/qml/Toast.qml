@@ -1,17 +1,32 @@
 import QtQuick
 
-// Bottom-centre message with an Undo button; slides up, hides itself after `timeout`.
+// Bottom-centre message with an Undo button (or another action); slides up, hides itself after `timeout`.
 Rectangle {
     id: root
     property string message
     property bool canUndo: false
     property int timeout: 5000
     property bool shown: false
+    property string actionLabel: ""     // set by showAction(): a button other than Undo
+    property var actionFn: null
     signal undo()
 
     function show(msg, undoable) {
         message = msg
         canUndo = undoable
+        actionLabel = ""
+        actionFn = null
+        hideTimer.interval = timeout
+        shown = true
+        hideTimer.restart()
+    }
+    // a message with its own button, e.g. "Version 1.2 is available · View"
+    function showAction(msg, label, fn, ms) {
+        message = msg
+        canUndo = false
+        actionLabel = label
+        actionFn = fn
+        hideTimer.interval = ms || 10000
         shown = true
         hideTimer.restart()
     }
@@ -37,14 +52,20 @@ Rectangle {
         spacing: 18
         Text { text: root.message; color: Theme.toastText; font.pixelSize: 14; anchors.verticalCenter: parent.verticalCenter }
         Text {
-            visible: root.canUndo
-            text: qsTr("Undo")
+            visible: root.canUndo || root.actionLabel !== ""
+            text: root.actionLabel !== "" ? root.actionLabel : qsTr("Undo")
             color: Theme.toastAction
             font.pixelSize: 14
             font.weight: Font.DemiBold
             anchors.verticalCenter: parent.verticalCenter
             HoverHandler { cursorShape: Qt.PointingHandCursor }
-            TapHandler { onTapped: { root.shown = false; root.undo() } }
+            TapHandler {
+                onTapped: {
+                    root.shown = false
+                    if (root.actionFn) root.actionFn()
+                    else root.undo()
+                }
+            }
         }
     }
 }

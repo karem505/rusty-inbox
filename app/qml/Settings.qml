@@ -54,7 +54,17 @@ Rectangle {
         tbStatus = st
         backend.import_thunderbird(JSON.stringify({ emails: emails, passwords: tbPasswords }))
     }
+    // update state (see updater.rs): refreshed from the backend and by update_changed
+    property var upd: ({})
+    readonly property bool updBusy: upd.state === "checking" || upd.state === "downloading"
+    function reloadUpdate() { upd = JSON.parse(backend.update_json()) }
+    function fmtDate(iso) { return iso ? new Date(iso).toLocaleDateString(Qt.locale(), Locale.LongFormat) : "" }
+    function fmtMb(b) { return (b / 1048576).toFixed(1) }
+    // Qt draws inline `code` in a larger fixed font than the text around it: keep it plain
+    function plainCode(md) { return (md || "").replace(/`([^`\n]+)`/g, "$1") }
+    onPageChanged: if (page === "updates") { reloadUpdate(); if (upd.state === "idle") backend.check_update() }
     function reload() {
+        reloadUpdate()
         prefs = JSON.parse(backend.settings_json())
         accounts = JSON.parse(backend.account_details_json())
         templates = JSON.parse(backend.templates_json())
@@ -79,6 +89,7 @@ Rectangle {
                 root.tbAccounts = root.tbAccounts.map(a => a.email === email ? Object.assign({}, a, { exists: true }) : a)
             }
         }
+        function onUpdate_changed(json) { root.upd = JSON.parse(json) }
         function onAccount_added(email, error) {
             root.busyEmail = ""
             if (error === "") {
@@ -100,6 +111,7 @@ Rectangle {
         { id: "appearance", label: qsTr("Appearance"), icon: "palette" },
         { id: "templates", label: qsTr("Templates"), icon: "template" },
         { id: "shortcuts", label: qsTr("Shortcuts"), icon: "keyboard" },
+        { id: "updates", label: qsTr("Updates"), icon: "update" },
         { id: "about", label: qsTr("About"), icon: "info" }
     ]
 
@@ -907,6 +919,187 @@ Rectangle {
                                 }
                                 Text { Layout.fillWidth: true; text: modelData[1]; font.pixelSize: 14; color: Theme.text }
                             }
+                        }
+                    }
+
+                    // ---------------- Updates
+                    ColumnLayout {
+                        visible: root.page === "updates"
+                        Layout.fillWidth: true
+                        spacing: 8
+                        Title { text: qsTr("Updates") }
+
+                        // current version + status + the main action
+                        Rectangle {
+                            objectName: "updateCard"
+                            Layout.fillWidth: true
+                            implicitHeight: updCol.implicitHeight + 32
+                            radius: 10
+                            color: Theme.surface
+                            ColumnLayout {
+                                id: updCol
+                                x: 16; y: 16
+                                width: parent.width - 32
+                                spacing: 10
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 14
+                                    Image {
+                                        Layout.preferredWidth: 44
+                                        Layout.preferredHeight: 44
+                                        sourceSize: Qt.size(88, 88)
+                                        source: "qrc:/qt/qml/org/rustyinbox/icons/app.png"
+                                    }
+                                    Column {
+                                        Layout.fillWidth: true
+                                        spacing: 3
+                                        Text {
+                                            text: root.backend.app_name() + " " + (root.upd.current || "")
+                                            font.pixelSize: 16
+                                            font.weight: Font.DemiBold
+                                            color: Theme.textStrong
+                                        }
+                                        Text {
+                                            width: parent.width
+                                            wrapMode: Text.Wrap
+                                            font.pixelSize: 13
+                                            color: root.upd.state === "error" ? Theme.danger
+                                                 : root.upd.state === "available" || root.upd.state === "ready" ? Theme.accent : Theme.textMuted
+                                            text: {
+                                                const u = root.upd, v = u.latest ? u.latest.version : ""
+                                                switch (u.state) {
+                                                case "checking": return qsTr("Checking for updates…")
+                                                case "current": return qsTr("You have the latest version.")
+                                                case "available": return qsTr("Version %1 is available.").arg(v)
+                                                case "downloading": return u.total > 0
+                                                    ? qsTr("Downloading %1… %2 of %3 MB").arg(v).arg(root.fmtMb(u.received)).arg(root.fmtMb(u.total))
+                                                    : qsTr("Downloading %1…").arg(v)
+                                                case "ready": return u.restart ? qsTr("Version %1 is installed. Restart to start using it.").arg(v)
+                                                                 : u.quit ? qsTr("The installer is updating %1 now.").arg(root.backend.app_name())
+                                                                 : qsTr("Version %1 is downloaded. Open it and drag the app into Applications to finish.").arg(v)
+                                                case "error": return qsTr("Could not update: %1").arg(u.error)
+                                                default: return qsTr("Not checked yet.")
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Button2 {
+                                        objectName: "checkUpdateButton"
+                                        visible: root.upd.state !== "ready" && root.upd.state !== "downloading"
+                                        enabled: !root.updBusy
+                                        text: qsTr("Check now")
+                                        onClicked: root.backend.check_update()
+                                    }
+                                    Button2 {
+                                        objectName: "installUpdateButton"
+                                        visible: root.upd.state === "available" && root.upd.method && root.upd.method.canInstall
+                                        text: root.upd.method && root.upd.method.inPlace ? qsTr("Download and install") : qsTr("Download")
+                                        primary: true
+                                        onClicked: root.backend.install_update()
+                                    }
+                                    Button2 {
+                                        visible: root.upd.state === "ready" && root.upd.restart === true
+                                        text: qsTr("Restart now")
+                                        primary: true
+                                        onClicked: if (root.backend.restart_into_update()) Qt.quit()
+                                    }
+                                }
+                                // download progress
+                                Rectangle {
+                                    visible: root.upd.state === "downloading"
+                                    Layout.fillWidth: true
+                                    implicitHeight: 6
+                                    radius: 3
+                                    color: Theme.border
+                                    Rectangle {
+                                        height: parent.height
+                                        radius: 3
+                                        color: Theme.accent
+                                        width: root.upd.total > 0 ? parent.width * Math.min(1, root.upd.received / root.upd.total) : 0
+                                        Behavior on width { NumberAnimation { duration: 150 } }
+                                    }
+                                }
+                                // install types the app cannot update by itself
+                                Text {
+                                    visible: root.upd.state === "available" && root.upd.method && !root.upd.method.canInstall
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.Wrap
+                                    textFormat: Text.MarkdownText
+                                    font.pixelSize: 13
+                                    color: Theme.text
+                                    text: root.upd.method ? root.plainCode(root.upd.method.howTo) : ""
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    font.pixelSize: 12
+                                    color: Theme.textMuted
+                                    text: qsTr("Installed as: %1").arg(root.upd.method ? root.upd.method.label : "")
+                                          + (root.upd.lastCheck > 0 ? "  ·  " + qsTr("Last checked %1").arg(new Date(root.upd.lastCheck).toLocaleString(Qt.locale(), Locale.ShortFormat)) : "")
+                                }
+                            }
+                        }
+
+                        // what's new in the release found
+                        Group {
+                            visible: !!root.upd.latest && root.upd.state !== "current" && root.upd.state !== "checking"
+                            text: root.upd.latest ? qsTr("What's new in %1").arg(root.upd.latest.version) : ""
+                        }
+                        Rectangle {
+                            objectName: "releaseNotes"
+                            visible: !!root.upd.latest && root.upd.state !== "current" && root.upd.state !== "checking"
+                            Layout.fillWidth: true
+                            implicitHeight: notesCol.implicitHeight + 32
+                            radius: 10
+                            color: Theme.surface
+                            Column {
+                                id: notesCol
+                                x: 16; y: 16
+                                width: parent.width - 32
+                                spacing: 10
+                                Text {
+                                    text: root.upd.latest ? root.upd.latest.name + "  ·  " + root.fmtDate(root.upd.latest.published) : ""
+                                    font.pixelSize: 14
+                                    font.weight: Font.DemiBold
+                                    color: Theme.textStrong
+                                }
+                                Text {
+                                    width: parent.width
+                                    wrapMode: Text.Wrap
+                                    textFormat: Text.MarkdownText
+                                    font.pixelSize: 13
+                                    color: Theme.text
+                                    linkColor: Theme.accent
+                                    text: root.upd.latest ? root.plainCode(root.upd.latest.notes) : ""
+                                    onLinkActivated: (link) => Qt.openUrlExternally(link)
+                                    HoverHandler { cursorShape: parent.hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor }
+                                }
+                                Button2 {
+                                    text: qsTr("Open the release page")
+                                    onClicked: Qt.openUrlExternally(root.upd.latest.url || root.upd.releasesUrl)
+                                }
+                            }
+                        }
+
+                        Group { text: qsTr("Automatic updates") }
+                        Option {
+                            label: qsTr("Check for updates automatically")
+                            help: qsTr("Looks for a new version in the background and tells you when one is out.")
+                            Toggle { key: "autoUpdateCheck" }
+                        }
+                        Option {
+                            label: qsTr("How often")
+                            enabled: root.prefs.autoUpdateCheck === true
+                            opacity: enabled ? 1 : 0.5
+                            Choice { key: "updateCheckDays"; values: [1, 7]; labels: [qsTr("Every day"), qsTr("Every week")] }
+                        }
+                        Option {
+                            label: qsTr("Install updates automatically")
+                            help: root.upd.method && root.upd.method.inPlace
+                                  ? qsTr("Downloads and installs new versions in the background. They start the next time you open the app.")
+                                  : qsTr("Available for the AppImage and Linux binary installs. This copy is updated as: %1.").arg(root.upd.method ? root.upd.method.label : "")
+                            enabled: root.prefs.autoUpdateCheck === true && !!root.upd.method && root.upd.method.inPlace && root.upd.method.canInstall
+                            opacity: enabled ? 1 : 0.5
+                            Toggle { key: "autoInstallUpdates" }
                         }
                     }
 
