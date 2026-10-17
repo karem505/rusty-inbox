@@ -1,6 +1,7 @@
 mod bridge;
 mod engine;
 mod instance;
+mod platform;
 mod settings;
 mod theme;
 

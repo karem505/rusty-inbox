@@ -125,6 +125,10 @@ pub mod qobject {
         #[qinvokable]
         fn latest_message_id(self: &Backend, thread_id: i64) -> i64;
 
+        /// Ask the compositor to focus our window (Hyprland: no focus stealing without this).
+        #[qinvokable]
+        fn focus_native(self: &Backend);
+
         /// App version (from Cargo.toml).
         #[qinvokable]
         fn version(self: &Backend) -> QString;
@@ -243,9 +247,14 @@ impl qobject::Backend {
             std::thread::spawn(move || show_notification(n, qt));
         });
         let qt_inst = self.qt_thread();
-        crate::instance::listen(move |req| {
-            let _ =
-                qt_inst.queue(move |mut obj: Pin<&mut qobject::Backend>| obj.as_mut().activated(QString::from(&req)));
+        crate::instance::listen(move |req, token| {
+            let _ = qt_inst.queue(move |mut obj: Pin<&mut qobject::Backend>| {
+                // Qt's Wayland backend uses this token on the next requestActivate()
+                if let Some(t) = token {
+                    std::env::set_var("XDG_ACTIVATION_TOKEN", t);
+                }
+                obj.as_mut().activated(QString::from(&req))
+            });
         });
         let qt_out = self.qt_thread();
         engine::on_outbox(move |id, subject, result| {
@@ -449,6 +458,10 @@ impl qobject::Backend {
 
     fn latest_message_id(&self, thread_id: i64) -> i64 {
         engine::core().store().thread_messages(thread_id).ok().and_then(|m| m.last().map(|m| m.id)).unwrap_or(0)
+    }
+
+    fn focus_native(&self) {
+        crate::platform::focus_own_window();
     }
 
     fn version(&self) -> QString {

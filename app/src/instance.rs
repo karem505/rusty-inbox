@@ -42,8 +42,15 @@ fn endpoint() -> PathBuf {
 }
 
 /// Hand `request` to a running copy. True when one took it (this process should exit).
+/// The launcher's Wayland activation token (`XDG_ACTIVATION_TOKEN`) travels along, so the running
+/// copy may raise its window: a background process is not allowed to take focus by itself.
 pub fn forward(request: &str) -> bool {
-    let msg = format!("{request}\n");
+    let token = std::env::var("XDG_ACTIVATION_TOKEN").unwrap_or_default();
+    let msg = if token.is_empty() || token.contains(['\t', '\n']) {
+        format!("{request}\n")
+    } else {
+        format!("{request}\t{token}\n")
+    };
     #[cfg(unix)]
     {
         if let Ok(mut s) = std::os::unix::net::UnixStream::connect(endpoint()) {
@@ -72,8 +79,19 @@ fn ack(s: impl std::io::Read) -> bool {
     matches!(r.read_line(&mut line), Ok(n) if n > 0) && line.trim() == "ok"
 }
 
-/// Become the running copy: accept requests on a background thread and pass each to `handle`.
-pub fn listen(handle: impl Fn(String) + Send + 'static) {
+/// Split a received line into the request and the optional activation token.
+pub fn parse_line(line: &str) -> (String, Option<String>) {
+    let line = line.trim_end_matches(['\r', '\n']);
+    match line.split_once('\t') {
+        Some((r, t)) if !t.trim().is_empty() => (r.trim().to_string(), Some(t.trim().to_string())),
+        Some((r, _)) => (r.trim().to_string(), None),
+        None => (line.trim().to_string(), None),
+    }
+}
+
+/// Become the running copy: accept requests on a background thread and pass each to `handle`
+/// as `(request, activation token)`.
+pub fn listen(handle: impl Fn(String, Option<String>) + Send + 'static) {
     let path = endpoint();
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
@@ -115,7 +133,7 @@ pub fn listen(handle: impl Fn(String) + Send + 'static) {
     }
 }
 
-fn serve<S: std::io::Read + Write>(s: &mut S, handle: &impl Fn(String)) {
+fn serve<S: std::io::Read + Write>(s: &mut S, handle: &impl Fn(String, Option<String>)) {
     let mut line = String::new();
     {
         let mut r = BufReader::new(&mut *s);
@@ -123,10 +141,10 @@ fn serve<S: std::io::Read + Write>(s: &mut S, handle: &impl Fn(String)) {
             return;
         }
     }
-    let req = line.trim().to_string();
+    let (req, token) = parse_line(&line);
     if valid_request(&req) {
         let _ = s.write_all(b"ok\n");
-        handle(req);
+        handle(req, token);
     } else {
         let _ = s.write_all(b"no\n");
     }
@@ -149,13 +167,20 @@ mod tests {
     }
 
     #[test]
+    fn activation_tokens_travel_with_requests() {
+        assert_eq!(parse_line("show\tabc123\n"), ("show".to_string(), Some("abc123".to_string())));
+        assert_eq!(parse_line("compose\n"), ("compose".to_string(), None));
+        assert_eq!(parse_line("mailto:a@b.c?x=1\t\n"), ("mailto:a@b.c?x=1".to_string(), None));
+    }
+
+    #[test]
     fn a_second_launch_reaches_the_first() {
         let dir = std::env::temp_dir().join(format!("ri-instance-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::env::set_var("RUSTY_INBOX_DATA_DIR", &dir);
         assert!(!forward("show"), "nobody listening yet");
         let (tx, rx) = std::sync::mpsc::channel();
-        listen(move |r| tx.send(r).unwrap());
+        listen(move |r, _token| tx.send(r).unwrap());
         std::thread::sleep(Duration::from_millis(100));
         assert!(forward("mailto:someone@example.org?subject=Hi"));
         assert_eq!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), "mailto:someone@example.org?subject=Hi");

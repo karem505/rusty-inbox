@@ -240,6 +240,7 @@ ApplicationWindow {
         win.show()
         win.raise()
         win.requestActivate()
+        backend.focus_native()
     }
     // a launch request (this one or a later launch handed over by the single-instance socket)
     function handleRequest(req) {

@@ -243,15 +243,20 @@ install_dmg() {
 }
 
 uninstall() {
+  # --method limits removal to that install (e.g. --method flatpak leaves a native copy alone)
   if [ "$PLATFORM" = macos ]; then
     rm -rf "/Applications/Rusty Inbox.app" "$HOME/Applications/Rusty Inbox.app" 2>/dev/null || true
   else
-    rm -rf "$LIB_DIR"
-    if [ -L "$BIN_DIR/rusty-inbox" ] || [ -f "$BIN_DIR/rusty-inbox" ]; then rm -f "$BIN_DIR/rusty-inbox"; fi
-    rm -f "$APPS_DIR/rusty-inbox.desktop"
-    for s in 16 22 24 32 48 64 96 128 256 512; do rm -f "$ICONS_DIR/${s}x${s}/apps/rusty-inbox.png"; done
-    refresh_desktop
-    if have flatpak && flatpak info --user "$APP_ID" >/dev/null 2>&1; then flatpak uninstall --user -y "$APP_ID" || true; fi
+    if [ "$METHOD" != flatpak ]; then
+      rm -rf "$LIB_DIR"
+      if [ -L "$BIN_DIR/rusty-inbox" ] || [ -f "$BIN_DIR/rusty-inbox" ]; then rm -f "$BIN_DIR/rusty-inbox"; fi
+      rm -f "$APPS_DIR/rusty-inbox.desktop"
+      for s in 16 22 24 32 48 64 96 128 256 512; do rm -f "$ICONS_DIR/${s}x${s}/apps/rusty-inbox.png"; done
+      refresh_desktop
+    fi
+    if [ -z "$METHOD" ] || [ "$METHOD" = flatpak ]; then
+      if have flatpak && flatpak info --user "$APP_ID" >/dev/null 2>&1; then flatpak uninstall --user -y "$APP_ID" || true; fi
+    fi
   fi
   say "Rusty Inbox removed. Your mail data is kept (~/.local/share/rusty-inbox or the platform equivalent)."
 }
