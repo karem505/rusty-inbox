@@ -78,6 +78,17 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.1.1" date="2026-10-17">
+      <description>
+        <p>Bug fixes:</p>
+        <ul>
+          <li>Mail sync no longer stalls when a server stops answering; accounts on one server connect one after another</li>
+          <li>One stuck account no longer stops the others from syncing</li>
+          <li>Opening the app from a shortcut or launcher brings its window to the front, also from the tray</li>
+          <li>Logs are written to a file for troubleshooting</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-10-17">
       <description>
         <p>First release.</p>
