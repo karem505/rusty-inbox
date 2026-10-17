@@ -393,7 +393,7 @@ pub fn install(method: &Method, release: &Release, progress: &mut dyn FnMut(u64,
             download(&asset.url, &setup, asset.size, progress)?;
             verify(release, &name, &setup)?;
             std::process::Command::new(&setup)
-                .args(["/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"])
+                .args(["/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS", "/RELAUNCH=1"])
                 .spawn()
                 .map_err(|e| format!("could not start the installer: {e}"))?;
             Ok(Outcome::Quit)
