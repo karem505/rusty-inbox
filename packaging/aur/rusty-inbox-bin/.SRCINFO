@@ -1,6 +1,6 @@
 pkgbase = rusty-inbox-bin
 	pkgdesc = Fast native email client: Rust IMAP/SMTP engine, Qt 6 QML interface (prebuilt binary)
-	pkgver = 0.1.0
+	pkgver = 0.1.1
 	pkgrel = 1
 	url = https://github.com/karem505/rusty-inbox
 	arch = x86_64
@@ -17,7 +17,7 @@ pkgbase = rusty-inbox-bin
 	conflicts = rusty-inbox
 	options = !strip
 	options = !debug
-	source = rusty-inbox-0.1.0-linux-x86_64.tar.gz::https://github.com/karem505/rusty-inbox/releases/download/v0.1.0/rusty-inbox-0.1.0-linux-x86_64.tar.gz
-	sha256sums = d2d922bd99f15b071bf80efef30e6ee229ca11fc05e901d45b032578b7751afd
+	source = rusty-inbox-0.1.1-linux-x86_64.tar.gz::https://github.com/karem505/rusty-inbox/releases/download/v0.1.1/rusty-inbox-0.1.1-linux-x86_64.tar.gz
+	sha256sums = db34af7bba049773738e9feec997e40a770684719453a77fdfbbae6892df2298
 
 pkgname = rusty-inbox-bin
