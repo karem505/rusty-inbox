@@ -13,7 +13,7 @@ provides=("$_pkgname")
 conflicts=("$_pkgname")
 options=('!strip' '!debug')
 source=("$_pkgname-$pkgver-linux-x86_64.tar.gz::$url/releases/download/v$pkgver/$_pkgname-$pkgver-linux-x86_64.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('d2d922bd99f15b071bf80efef30e6ee229ca11fc05e901d45b032578b7751afd')
 
 package() {
   cd "$_pkgname-$pkgver-linux-x86_64"

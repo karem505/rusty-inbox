@@ -18,6 +18,6 @@ pkgbase = rusty-inbox
 	optdepends = xdg-utils: open links and make Rusty Inbox the mailto handler
 	options = !lto
 	source = rusty-inbox-0.1.0.tar.gz::https://github.com/karem505/rusty-inbox/archive/v0.1.0.tar.gz
-	sha256sums = SKIP
+	sha256sums = 938cbb242eecf30c9b5ef1af8202ff6c4def1f81cd688d0bbabe2e98d8873039
 
 pkgname = rusty-inbox

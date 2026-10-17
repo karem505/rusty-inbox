@@ -18,6 +18,6 @@ pkgbase = rusty-inbox-bin
 	options = !strip
 	options = !debug
 	source = rusty-inbox-0.1.0-linux-x86_64.tar.gz::https://github.com/karem505/rusty-inbox/releases/download/v0.1.0/rusty-inbox-0.1.0-linux-x86_64.tar.gz
-	sha256sums = SKIP
+	sha256sums = d2d922bd99f15b071bf80efef30e6ee229ca11fc05e901d45b032578b7751afd
 
 pkgname = rusty-inbox-bin
