@@ -492,11 +492,12 @@ impl qobject::Backend {
 
     fn open_thread(self: Pin<&mut Self>, thread_id: i64) {
         let qt = self.qt_thread();
+        // what is stored shows at once, without waiting for the network engine
+        let json = engine::messages_json(thread_id).to_string();
+        let _ = qt.queue(move |mut obj: Pin<&mut qobject::Backend>| {
+            obj.as_mut().thread_loaded(thread_id, QString::from(&json))
+        });
         engine::runtime().spawn(async move {
-            let json = engine::messages_json(thread_id).to_string();
-            let _ = qt.queue(move |mut obj: Pin<&mut qobject::Backend>| {
-                obj.as_mut().thread_loaded(thread_id, QString::from(&json))
-            });
             if engine::core().fetch_missing_bodies(thread_id).await {
                 let json = engine::messages_json(thread_id).to_string();
                 let _ = qt.queue(move |mut obj: Pin<&mut qobject::Backend>| {
