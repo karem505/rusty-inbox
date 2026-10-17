@@ -1,7 +1,7 @@
 # Maintainer: Karem Aboelmakarem <karem505 at github>
 pkgname=rusty-inbox-bin
 _pkgname=rusty-inbox
-pkgver=0.1.1
+pkgver=0.1.2
 pkgrel=1
 pkgdesc="Fast native email client: Rust IMAP/SMTP engine, Qt 6 QML interface (prebuilt binary)"
 arch=('x86_64')
@@ -13,7 +13,7 @@ provides=("$_pkgname")
 conflicts=("$_pkgname")
 options=('!strip' '!debug')
 source=("$_pkgname-$pkgver-linux-x86_64.tar.gz::$url/releases/download/v$pkgver/$_pkgname-$pkgver-linux-x86_64.tar.gz")
-sha256sums=('db34af7bba049773738e9feec997e40a770684719453a77fdfbbae6892df2298')
+sha256sums=('0fabffc8c289ceb3136848d7a3466bf5c409febd07d4423a158dbc578c6e7b05')
 
 package() {
   cd "$_pkgname-$pkgver-linux-x86_64"
