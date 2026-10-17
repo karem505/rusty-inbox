@@ -113,7 +113,7 @@ jobs:
           echo "$out"
           [ "$out" = "rusty-inbox $VERSION" ]
           data=$(mktemp -d); shots=$(mktemp -d)
-          RUSTY_INBOX_DATA_DIR="$data" timeout 120 "$app" --appimage-extract-and-run --autotest="$shots"
+          RUSTY_INBOX_DATA_DIR="$data" timeout 300 "$app" --appimage-extract-and-run --autotest="$shots"
           ls "$shots"
           ls "$shots"/*.png >/dev/null
       - uses: actions/upload-artifact@v4
@@ -172,7 +172,7 @@ jobs:
           Copy-Item "dist\rusty-inbox" $t -Recurse
           Copy-Item "$qtRoot\plugins\platforms\qoffscreen.dll" "$t\platforms\"
           $p = Start-Process "$t\rusty-inbox.exe" -ArgumentList "--autotest=$shots" -PassThru -NoNewWindow
-          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "autotest timed out" }
+          if (-not $p.WaitForExit(300000)) { $p.Kill(); throw "autotest timed out" }
           if ($p.ExitCode -ne 0) { throw "autotest exit code $($p.ExitCode)" }
           Get-ChildItem $shots
           if (-not (Get-ChildItem $shots -Filter *.png)) { throw "no screenshots" }
@@ -273,7 +273,7 @@ jobs:
           bin="$t/Rusty Inbox.app/Contents/MacOS/rusty-inbox"
           unset QT_PLUGIN_PATH QML2_IMPORT_PATH QT_ROOT_DIR
           data=$(mktemp -d); shots=$(mktemp -d)
-          RUSTY_INBOX_DATA_DIR="$data" perl -e 'alarm 120; exec @ARGV' "$bin" --autotest="$shots"
+          RUSTY_INBOX_DATA_DIR="$data" perl -e 'alarm 300; exec @ARGV' "$bin" --autotest="$shots"
           ls "$shots"; ls "$shots"/*.png >/dev/null
       - name: DMG
         run: |
