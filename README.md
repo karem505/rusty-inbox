@@ -70,6 +70,7 @@ A full tour on YouTube, recorded on a demo mailbox:
 
 | Platform | Package |
 |---|---|
+| **Linux (Flatpak)** | `flatpak install --user https://karem505.github.io/rusty-inbox/rusty-inbox.flatpakref` (updates with `flatpak update`) |
 | **Linux (any distro)** | AppImage or Flatpak bundle from [Releases](https://github.com/karem505/rusty-inbox/releases) |
 | **Arch Linux** | `makepkg -si` in [`packaging/aur/rusty-inbox`](packaging/aur/rusty-inbox) (from source) or [`rusty-inbox-bin`](packaging/aur/rusty-inbox-bin); AUR listing coming |
 | **Windows 10/11** | Installer (`.exe`) or portable `.zip` from [Releases](https://github.com/karem505/rusty-inbox/releases) |

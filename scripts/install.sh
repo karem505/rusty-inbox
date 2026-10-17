@@ -6,6 +6,7 @@ set -eu
 
 REPO="karem505/rusty-inbox"
 APP_ID="io.github.karem505.rusty-inbox"
+FLATPAK_REF="https://karem505.github.io/rusty-inbox/rusty-inbox.flatpakref"
 PREFIX="${PREFIX:-$HOME/.local}"
 LIB_DIR="$PREFIX/lib/rusty-inbox"
 BIN_DIR="$PREFIX/bin"
@@ -197,13 +198,11 @@ install_flatpak() {
     flatpak remote-info flathub "$APP_ID" >/dev/null 2>&1; then
     flatpak install --user -y flathub "$APP_ID"
   else
-    name="rusty-inbox-$VERSION-x86_64.flatpak"
-    tmp="$(mktemp -d)"
-    fetch "$(asset_url "$name")" "$tmp/$name" || { rm -rf "$tmp"; die "download failed (no Flathub app and no bundle in release v$VERSION)"; }
-    flatpak install --user -y --bundle "$tmp/$name"
-    rm -rf "$tmp"
+    # the project's own signed repository; `flatpak update` keeps it current afterwards
+    flatpak install --user -y --noninteractive "$FLATPAK_REF" ||
+      die "could not install from $FLATPAK_REF"
   fi
-  say "Installed with Flatpak. Run: flatpak run $APP_ID"
+  say "Installed with Flatpak (updates come with 'flatpak update'). Run: flatpak run $APP_ID"
 }
 
 install_source() {

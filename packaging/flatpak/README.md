@@ -44,3 +44,16 @@ The `Flatpak` workflow does this on every `v*` tag and attaches the bundle to th
 
 The app sets its desktop file name from the build-time variable `RUSTY_INBOX_DESKTOP_ID`
 (the manifest sets it to the app id so the Wayland app id matches the `.desktop` file).
+
+## Self-hosted repository (GitHub Pages)
+
+Every `v*` tag (or a manual run of the Flatpak workflow) rebuilds a signed OSTree repository and
+deploys it to https://karem505.github.io/rusty-inbox/:
+
+    flatpak install --user https://karem505.github.io/rusty-inbox/rusty-inbox.flatpakref
+
+- Branch `stable`; the KDE runtime is pulled from Flathub (`RuntimeRepo` in the flatpakref).
+- Signed with a dedicated GPG key: the public key is `repo/rusty-inbox.gpg` here; the private key
+  is the `FLATPAK_GPG_PRIVATE_KEY` secret (id in `FLATPAK_GPG_KEY_ID`). Losing the key means
+  users have to re-add the remote, so keep the owner's offline copy.
+- The site holds only the latest build; clients still update normally (they fetch the new commit).
