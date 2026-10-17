@@ -1,5 +1,8 @@
 name: Flatpak
 
+# Builds the Flatpak on every release tag: attaches the .flatpak bundle to the GitHub Release and
+# publishes a signed Flatpak repository on GitHub Pages:
+#   flatpak install --user https://karem505.github.io/rusty-inbox/rusty-inbox.flatpakref
 on:
   push:
     tags: ["v*"]
@@ -7,6 +10,16 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: flatpak-pages
+  cancel-in-progress: false
+
+env:
+  APP_ID: io.github.karem505.rusty-inbox
+  SITE: https://karem505.github.io/rusty-inbox
 
 jobs:
   flatpak:
@@ -21,11 +34,19 @@ jobs:
         run: |
           VER=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')
           echo "bundle=rusty-inbox-${VER}-x86_64.flatpak" >> "$GITHUB_OUTPUT"
+      - name: Import the repository signing key
+        env:
+          KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+        run: |
+          printf '%s\n' "$KEY" | gpg --batch --import
+          gpg --list-secret-keys --keyid-format long | grep -c sec
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: ${{ steps.v.outputs.bundle }}
           manifest-path: packaging/flatpak/io.github.karem505.rusty-inbox.yml
           arch: x86_64
+          branch: stable
+          gpg-sign: ${{ secrets.FLATPAK_GPG_KEY_ID }}
           cache-key: flatpak-builder-${{ github.sha }}
           restore-cache: true
       - name: Attach to the GitHub Release
@@ -33,3 +54,66 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.v.outputs.bundle }}
+      - name: Signed repository site
+        env:
+          KEY_ID: ${{ secrets.FLATPAK_GPG_KEY_ID }}
+        run: |
+          set -eu
+          ls -d repo/objects
+          flatpak build-update-repo --gpg-sign="$KEY_ID" --default-branch=stable \
+            --title="Rusty Inbox" --homepage=https://github.com/karem505/rusty-inbox repo
+          mkdir -p _site
+          cp -a repo _site/repo
+          KEY_B64=$(base64 -w0 packaging/flatpak/repo/rusty-inbox.gpg)
+          cp packaging/flatpak/repo/rusty-inbox.gpg _site/rusty-inbox.gpg
+          cp app/packaging/icons/rusty-inbox-128.png _site/icon.png
+          cat > _site/rusty-inbox.flatpakref <<REF
+          [Flatpak Ref]
+          Title=Rusty Inbox
+          Name=$APP_ID
+          Branch=stable
+          Url=$SITE/repo/
+          SuggestRemoteName=rusty-inbox
+          Homepage=https://github.com/karem505/rusty-inbox
+          Icon=$SITE/icon.png
+          RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo
+          IsRuntime=false
+          GPGKey=$KEY_B64
+          REF
+          cat > _site/rusty-inbox.flatpakrepo <<REPO
+          [Flatpak Repo]
+          Title=Rusty Inbox
+          Url=$SITE/repo/
+          Homepage=https://github.com/karem505/rusty-inbox
+          Comment=Fast native email client
+          Icon=$SITE/icon.png
+          DefaultBranch=stable
+          GPGKey=$KEY_B64
+          REPO
+          sed -i 's/^ *//' _site/rusty-inbox.flatpakref _site/rusty-inbox.flatpakrepo
+          cat > _site/index.html <<'HTML'
+          <!doctype html><meta charset="utf-8"><title>Rusty Inbox Flatpak repository</title>
+          <style>body{font:16px/1.6 system-ui,sans-serif;max-width:720px;margin:48px auto;padding:0 20px}code,pre{background:#f2f2f2;padding:2px 6px;border-radius:6px}pre{padding:12px;overflow:auto}</style>
+          <h1>Rusty Inbox Flatpak repository</h1>
+          <p>Install (the KDE runtime comes from Flathub):</p>
+          <pre>flatpak install --user https://karem505.github.io/rusty-inbox/rusty-inbox.flatpakref</pre>
+          <p>Updates arrive with <code>flatpak update</code>. Or add the repository:</p>
+          <pre>flatpak remote-add --user --if-not-exists rusty-inbox https://karem505.github.io/rusty-inbox/rusty-inbox.flatpakrepo</pre>
+          <p><a href="https://github.com/karem505/rusty-inbox">Source and other downloads</a></p>
+          HTML
+          touch _site/.nojekyll
+          du -sh _site _site/repo
+          find _site -type f -size +95M -print
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  pages:
+    needs: flatpak
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
