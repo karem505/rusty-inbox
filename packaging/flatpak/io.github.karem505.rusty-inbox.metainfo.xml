@@ -78,6 +78,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.1.4" date="2026-10-18">
+      <description>
+        <p>Push that stays connected, and fewer connections to your mail server:</p>
+        <ul>
+          <li>Accounts with push no longer log in for a full check every minute; their other folders are checked every 10 minutes</li>
+          <li>New mail and pushed updates reuse the push connection, so the app holds one connection per account</li>
+          <li>A push connection that a firewall cut silently is noticed within about two minutes and reopened</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.3" date="2026-10-18">
       <description>
         <p>New:</p>

@@ -48,8 +48,17 @@ fn wake() -> &'static tokio::sync::Notify {
     WAKE.get_or_init(tokio::sync::Notify::new)
 }
 
-/// Cut the current wait short and sync now ("Check for new mail").
+/// Set by `sync_now`: the next pass syncs every account fully, push or not.
+static FULL_PASS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// With push (IMAP IDLE) the inbox is synced the moment mail arrives; the full pass (other
+/// folders, changes made elsewhere) then runs this often instead of every interval, so servers
+/// that limit connections per IP (cPanel) are not asked for a login every minute per account.
+const FULL_PASS_WITH_PUSH: Duration = Duration::from_secs(10 * 60);
+
+/// Cut the current wait short and sync every account now ("Check for new mail", after sending).
 pub fn sync_now() {
+    FULL_PASS.store(true, std::sync::atomic::Ordering::SeqCst);
     wake().notify_one();
 }
 
@@ -100,7 +109,9 @@ pub fn on_synced(notify: impl Fn() + Send + Sync + 'static) {
     let offline = std::env::var_os("RUSTY_INBOX_OFFLINE").is_some();
     let notify = std::sync::Arc::new(notify);
     runtime().spawn(async move {
+        let mut last_full: std::collections::HashMap<String, std::time::Instant> = Default::default();
         loop {
+            let force = FULL_PASS.swap(false, std::sync::atomic::Ordering::SeqCst);
             if offline {
                 let now = chrono_now_ms();
                 if !core().store().wake_snoozed(now).unwrap_or_default().is_empty() {
@@ -109,6 +120,15 @@ pub fn on_synced(notify: impl Fn() + Send + Sync + 'static) {
             } else {
                 let accounts = core().store().accounts().unwrap_or_default();
                 for a in accounts {
+                    let recent = last_full.get(&a.email).is_some_and(|t| t.elapsed() < FULL_PASS_WITH_PUSH);
+                    if !force && recent && core().has_push(&a.email) {
+                        // the inbox is pushed; only snoozed mail needs the clock
+                        if !core().store().wake_snoozed(chrono_now_ms()).unwrap_or_default().is_empty() {
+                            notify();
+                        }
+                        continue;
+                    }
+                    last_full.insert(a.email.clone(), std::time::Instant::now());
                     // one stuck account must not stop the others (or the next passes)
                     // (its own task, so a panic in one account's sync cannot end this loop)
                     let email = a.email.clone();

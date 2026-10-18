@@ -9,7 +9,7 @@ use crate::store::{ListFilter, Store};
 use crate::CoreResult;
 use chrono::Utc;
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -66,16 +66,19 @@ struct Inner {
     /// one sync at a time per account (a full pass and a pushed inbox sync must not interleave:
     /// one would take the other's new messages for deleted ones)
     sync_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// accounts whose inbox is being watched with IMAP IDLE right now (see `has_push`)
+    push_live: Mutex<HashSet<String>>,
 }
 
 /// Minimum time between new IMAP connections to one host. Hosting firewalls (cPanel's in
 /// particular) block an IP for minutes after a few logins in quick succession, so several
 /// accounts on one server are connected one after another instead of at once.
-pub const NEW_CONNECTION_GAP: std::time::Duration = std::time::Duration::from_secs(12);
+pub const NEW_CONNECTION_GAP: std::time::Duration = std::time::Duration::from_secs(20);
 
-/// How long one IDLE lasts before it is renewed. Routers and firewalls forget quiet connections
-/// after 10 to 15 minutes, and RFC 2177 asks clients to renew within 29.
-pub const IDLE_RENEW: std::time::Duration = std::time::Duration::from_secs(9 * 60);
+/// How long one IDLE lasts before it is renewed (DONE, then IDLE again on the same login).
+/// Routers and firewalls forget quiet connections after 5 to 15 minutes, and RFC 2177 asks
+/// clients to renew within 29; TCP keepalive (see `mail::imap`) catches dead ones sooner.
+pub const IDLE_RENEW: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 
 #[derive(Clone)]
 pub struct Engine {
@@ -95,6 +98,7 @@ impl Engine {
                 pool: Mutex::new(HashMap::new()),
                 next_connect: Mutex::new(HashMap::new()),
                 sync_locks: Mutex::new(HashMap::new()),
+                push_live: Mutex::new(HashSet::new()),
             }),
         })
     }
@@ -207,10 +211,13 @@ impl Engine {
     /// Hand a connection back for reuse (at most two idle per account; extra ones log out).
     async fn release(&self, mut c: imap::Connection) {
         c.idle_since = std::time::Instant::now();
+        // with push the inbox has its own connection and the next full pass is minutes away:
+        // an idle spare would only count against the server's per-IP connection limit
+        let keep = if self.has_push(&c.account) { 0 } else { 2 };
         let extra = {
             let mut pool = self.inner.pool.lock();
             let v = pool.entry(c.account.clone()).or_default();
-            if v.len() < 2 {
+            if v.len() < keep {
                 v.push(c);
                 None
             } else {
@@ -219,6 +226,21 @@ impl Engine {
         };
         if let Some(mut c) = extra {
             let _ = c.logout().await;
+        }
+    }
+
+    /// True while `email`'s inbox is watched with IMAP IDLE: new mail is pushed, so the regular
+    /// full passes can be rare.
+    pub fn has_push(&self, email: &str) -> bool {
+        self.inner.push_live.lock().contains(email)
+    }
+
+    fn set_push(&self, email: &str, on: bool) {
+        let mut live = self.inner.push_live.lock();
+        if on {
+            live.insert(email.to_string());
+        } else {
+            live.remove(email);
         }
     }
 
@@ -635,12 +657,30 @@ impl Engine {
         Ok(n)
     }
 
+    /// Sync `email`'s inbox over `c` (the IDLE connection: no extra login per pushed message).
+    async fn sync_inbox_on(&self, email: &str, c: &mut imap::Connection) -> anyhow::Result<usize> {
+        let lock = self.sync_lock(email);
+        let _one_at_a_time = lock.lock().await;
+        let store = &self.inner.store;
+        let inbox = store.folder_by_role(email, "inbox")?.ok_or_else(|| anyhow::anyhow!("no inbox yet"))?;
+        let before = self.inner.high_water.lock().get(email).copied();
+        let n = c.sync_folder(store, email, inbox.id, &inbox.path).await?.new;
+        self.report_new_mail(email, before);
+        Ok(n)
+    }
+
     /// Keep one connection of `email` in IMAP IDLE on its inbox and call `changed` after every
     /// inbox sync a server push started. Runs until the account is removed, or returns at once
     /// (Ok) when the server has no IDLE: the regular passes are all there is then. Connection
     /// errors are retried with growing pauses (10 s up to 5 min). After every new connection the
     /// inbox is synced once, since IDLE only reports what arrives while it waits.
     pub async fn watch_inbox(&self, email: &str, changed: impl Fn(usize)) -> anyhow::Result<()> {
+        let r = self.watch_inbox_loop(email, &changed).await;
+        self.set_push(email, false);
+        r
+    }
+
+    async fn watch_inbox_loop(&self, email: &str, changed: &impl Fn(usize)) -> anyhow::Result<()> {
         if !self.inner.cfg.network {
             anyhow::bail!("offline");
         }
@@ -662,20 +702,40 @@ impl Engine {
                     tokio::time::sleep(pause).await;
                     continue;
                 }
-                (None, Some(_)) => match self.new_connection(email).await {
-                    Ok(mut c) => match c.supports_idle().await {
-                        Ok(true) => {
-                            // catch up on what arrived while no IDLE was listening
-                            match self.sync_inbox(email).await {
-                                Ok(n) if n > 0 => changed(n),
-                                Ok(_) => {}
-                                Err(e) => tracing::warn!("sync inbox {email}: {e:#}"),
+                (None, Some(_)) => {
+                    let connected = match self.new_connection(email).await {
+                        Ok(mut c) => match c.supports_idle().await {
+                            Ok(true) => Ok(Some(c)),
+                            Ok(false) => Ok(None),
+                            Err(e) => Err(e),
+                        },
+                        Err(e) => Err(e),
+                    };
+                    match connected {
+                        Ok(Some(mut c)) => {
+                            // catch up on what arrived while no IDLE was listening (over this
+                            // connection: every extra login counts against the server's limit)
+                            match self.sync_inbox_on(email, &mut c).await {
+                                Ok(n) => {
+                                    if n > 0 {
+                                        changed(n);
+                                    }
+                                    self.set_push(email, true);
+                                    // spares left by the passes before push came up: the
+                                    // server counts them against its per-IP limit
+                                    self.close_connections(Some(email)).await;
+                                    c
+                                }
+                                Err(e) => {
+                                    tracing::warn!("sync inbox {email}: {e:#}");
+                                    tokio::time::sleep(pause).await;
+                                    pause = (pause * 2).min(std::time::Duration::from_secs(300));
+                                    continue;
+                                }
                             }
-                            c
                         }
-                        Ok(false) => {
+                        Ok(None) => {
                             tracing::info!("{email}: the server has no IDLE, checking every few minutes instead");
-                            let _ = c.logout().await;
                             return Ok(());
                         }
                         Err(e) => {
@@ -684,30 +744,34 @@ impl Engine {
                             pause = (pause * 2).min(std::time::Duration::from_secs(300));
                             continue;
                         }
-                    },
-                    Err(e) => {
-                        tracing::warn!("idle {email}: {e:#}");
-                        tokio::time::sleep(pause).await;
-                        pause = (pause * 2).min(std::time::Duration::from_secs(300));
-                        continue;
                     }
-                },
+                }
             };
             let path = inbox.map(|f| f.path).unwrap_or_else(|| "INBOX".into());
             match c.wait_for_change(&path, IDLE_RENEW).await {
-                Ok((c, has_news)) => {
-                    conn = Some(c);
+                Ok((mut c, has_news)) => {
                     pause = FIRST_PAUSE;
-                    if has_news {
-                        tracing::debug!("{email}: the server reported a change in {path}");
-                        match self.sync_inbox(email).await {
-                            Ok(n) => changed(n),
-                            Err(e) => tracing::warn!("sync inbox {email}: {e:#}"),
+                    if !has_news {
+                        conn = Some(c);
+                        continue;
+                    }
+                    tracing::debug!("{email}: the server reported a change in {path}");
+                    match self.sync_inbox_on(email, &mut c).await {
+                        Ok(n) => {
+                            changed(n);
+                            conn = Some(c);
+                        }
+                        // the connection is in an unknown state: start over with a new one
+                        Err(e) => {
+                            tracing::warn!("sync inbox {email}: {e:#}; reconnecting");
+                            self.set_push(email, false);
+                            tokio::time::sleep(pause).await;
                         }
                     }
                 }
                 Err(e) => {
                     tracing::info!("idle {email}: {e:#}; reconnecting");
+                    self.set_push(email, false);
                     tokio::time::sleep(pause).await;
                     pause = (pause * 2).min(std::time::Duration::from_secs(300));
                 }
@@ -906,6 +970,16 @@ mod tests {
         assert!(e.unqueue(id).is_some(), "a failed message can be edited again");
         e.discard_draft(id, &d).await;
         assert!(e.store().outgoing(id).unwrap().is_none());
+    }
+
+    #[test]
+    fn push_is_tracked_per_account() {
+        let (e, _d, _ids) = engine();
+        assert!(!e.has_push("a@example.com"));
+        e.set_push("a@example.com", true);
+        assert!(e.has_push("a@example.com") && !e.has_push("b@example.com"));
+        e.set_push("a@example.com", false);
+        assert!(!e.has_push("a@example.com"));
     }
 
     #[test]

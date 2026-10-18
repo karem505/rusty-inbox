@@ -12,6 +12,7 @@ categories = ["email", "network-programming"]
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+socket2 = { version = "0.6", features = ["all"] }
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

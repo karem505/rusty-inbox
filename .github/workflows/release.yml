@@ -8,7 +8,7 @@ on:
       version:
         description: "Version to build (test run: uploads artifacts, creates no release)"
         required: true
-        default: "0.1.3"
+        default: "0.1.4"
       publish:
         description: "Publish: create the v<version> tag on this commit and the GitHub Release"
         type: boolean
@@ -31,7 +31,7 @@ jobs:
         run: |
           v="${{ github.event.inputs.version }}"
           if [ "${GITHUB_REF_TYPE}" = tag ]; then v="${GITHUB_REF_NAME#v}"; fi
-          [ -n "$v" ] || v=0.1.3
+          [ -n "$v" ] || v=0.1.4
           v="${v#v}"
           echo "version=$v" >> "$GITHUB_OUTPUT"
 

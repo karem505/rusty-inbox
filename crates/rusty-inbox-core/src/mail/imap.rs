@@ -32,6 +32,22 @@ pub struct Connection {
     pub idle_since: std::time::Instant,
 }
 
+/// Probe a quiet connection after a minute and give up after about two more without an answer.
+/// An IDLE connection is silent by design; when a firewall drops it without a reset (cPanel's
+/// does when it blocks an IP for a while) the app would otherwise wait on a dead socket until
+/// the next IDLE renewal and miss the mail pushed in between.
+fn set_keepalive(tcp: &TcpStream) {
+    let ka = socket2::TcpKeepalive::new().with_time(Duration::from_secs(60)).with_interval(Duration::from_secs(15));
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    let ka = ka.with_retries(4);
+    if let Err(e) = socket2::SockRef::from(tcp).set_tcp_keepalive(&ka) {
+        tracing::debug!("tcp keepalive: {e}");
+    }
+}
+
+/// Servers answer DONE at once; a connection that does not is gone.
+const IDLE_DONE_TIMEOUT: Duration = Duration::from_secs(20);
+
 async fn timed<T>(what: &str, f: impl std::future::Future<Output = Result<T>>) -> Result<T> {
     tokio::time::timeout(OP_TIMEOUT, f).await.map_err(|_| anyhow!("IMAP {what} timed out"))?
 }
@@ -52,6 +68,7 @@ impl Connection {
             .map_err(|_| anyhow!("connect to {} timed out", host()))?
             .with_context(|| format!("connect to {}", host()))?;
         tcp.set_nodelay(true).ok();
+        set_keepalive(&tcp);
         let handshake = |tcp| async move {
             tokio::time::timeout(limit, tls::connector().connect(tls::server_name(&acct.imap_host)?, tcp))
                 .await
@@ -113,7 +130,9 @@ impl Connection {
             drop(stop);
             matches!(r?, async_imap::extensions::idle::IdleResponse::NewData(_))
         };
-        let session = timed("idle done", async { Ok(idle.done().await?) }).await?;
+        let session = tokio::time::timeout(IDLE_DONE_TIMEOUT, idle.done())
+            .await
+            .map_err(|_| anyhow!("IMAP idle done timed out"))??;
         Ok((Connection { session, account, idle_since }, changed))
     }
 
@@ -467,6 +486,17 @@ fn to_message(f: &Fetch, account: &str, folder_id: i64, full: bool) -> Option<cr
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn mail_connections_use_tcp_keepalive() {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let tcp = tokio::net::TcpStream::connect(l.local_addr().unwrap()).await.unwrap();
+        super::set_keepalive(&tcp);
+        let s = socket2::SockRef::from(&tcp);
+        assert!(s.keepalive().unwrap());
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        assert_eq!(s.tcp_keepalive_time().unwrap(), std::time::Duration::from_secs(60));
+    }
+
     #[tokio::test]
     async fn a_silent_server_cannot_hang_the_connect() {
         // accepts TCP, never answers the TLS handshake (what a throttling firewall does)
