@@ -35,6 +35,10 @@ native Rust and the interface is Qt Quick, not a browser shell.
   suggestions, attachments (picker or drag-and-drop), per-account signatures.
 - **Undo Send and Send Later.** Messages wait in a local outbox, so you can take them back. A
   message that fails is retried by itself and kept under *Scheduled*, so nothing is lost.
+- **Attachments.** Click an attachment to open it, or save it (or all of a message's attachments)
+  anywhere. Files are downloaded once and kept in the local cache.
+- **People.** Click any name or address in a message (From, To, Cc or Bcc) to open the person's
+  card: write to them, copy the address, or list every conversation you have with them.
 - **Templates** for the replies you write every week.
 - **Drafts sync with the server.** Drafts save while you type and appear in your mail provider's
   Drafts folder. Sent mail is filed in Sent, and replied mail is flagged as answered.

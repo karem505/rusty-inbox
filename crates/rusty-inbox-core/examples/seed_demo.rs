@@ -27,6 +27,15 @@ struct Mail<'a> {
     reply_to_id: Option<&'a str>,
 }
 
+/// Who else was copied on a demo mail.
+fn cc_of(id: &str) -> Vec<(&'static str, &'static str)> {
+    match id {
+        "launch-1" => vec![("Jonas Weber", "jonas@northwind.dev"), ("Priya Natarajan", "priya@northwind.dev")],
+        "contract" => vec![("Legal team", "legal@northwind.dev")],
+        _ => vec![],
+    }
+}
+
 fn person(paragraphs: &[&str], sign: &str) -> String {
     let body: String = paragraphs.iter().map(|p| format!("<p>{p}</p>")).collect();
     format!(
@@ -260,7 +269,7 @@ fn main() {
                 from_name: Some(m.from.0.into()),
                 from_addr: m.from.1.into(),
                 to: addr(&m.to),
-                cc: json!([]),
+                cc: addr(&cc_of(m.id)),
                 bcc: json!([]),
                 reply_to: json!([]),
                 date_ms: now - (m.hours_ago * 3_600_000.0) as i64,

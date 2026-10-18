@@ -78,6 +78,19 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.1.3" date="2026-10-18">
+      <description>
+        <p>New:</p>
+        <ul>
+          <li>Download attachments of received mail: open one with a click, save it anywhere, or save all of a message's attachments at once</li>
+          <li>Click any name or address in a message (From, To, Cc, Bcc) to open the person's card: write to them, copy the address, or see all your conversations with them</li>
+        </ul>
+        <p>Fixes:</p>
+        <ul>
+          <li>Attachments of large messages show once the message is opened</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.2" date="2026-10-17">
       <description>
         <p>In-app updates and a reader fix:</p>

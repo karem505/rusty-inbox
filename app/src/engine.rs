@@ -355,7 +355,8 @@ pub fn inverse_of(action: &str) -> Option<&'static str> {
 // ---- lists --------------------------------------------------------------------------------
 
 /// What the thread list shows, as sent from QML:
-/// `{"list":"inbox","account":"a@x"|null,"category":"personal"|null,"folder":12|null}`.
+/// `{"list":"inbox","account":"a@x"|null,"category":"personal"|null,"folder":12|null}`, or
+/// `{"list":"contact","contact":"a@x"}` for the conversations with one person.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ListSpec {
     pub list: String,
@@ -364,6 +365,8 @@ pub struct ListSpec {
     pub folder: Option<i64>,
     /// inbox only: also show Done conversations (marked with `done`)
     pub show_done: bool,
+    /// `"list":"contact"`: conversations with this address
+    pub contact: Option<String>,
 }
 
 impl ListSpec {
@@ -380,6 +383,7 @@ impl ListSpec {
             category: opt("category"),
             folder: v["folder"].as_i64(),
             show_done: v["showDone"].as_bool().unwrap_or(false),
+            contact: opt("contact"),
         }
     }
 
@@ -391,6 +395,7 @@ impl ListSpec {
         match self.list.as_str() {
             "done" => ListFilter::Inbox { account, done: true, category: None, with_done: false },
             "pinned" => ListFilter::Pinned,
+            "contact" => ListFilter::Contact(self.contact.clone().unwrap_or_default()),
             "snoozed" => ListFilter::Snoozed { account },
             "sent" | "drafts" | "trash" | "spam" | "archive" => ListFilter::Role { account, role: self.list.clone() },
             _ => ListFilter::Inbox { account, done: false, category: self.category.clone(), with_done: self.show_done },
@@ -611,6 +616,7 @@ pub fn message_json(m: &MessageRow) -> Value {
         "fromAddr": m.from_addr,
         "to": m.to,
         "cc": m.cc,
+        "bcc": m.bcc,
         "date": m.date_ms,
         "html": m.body_html,
         "text": m.body_text,
@@ -625,6 +631,68 @@ pub fn message_json(m: &MessageRow) -> Value {
 pub fn messages_of(store: &Store, thread_id: i64) -> Value {
     let msgs = store.thread_messages(thread_id).unwrap_or_default();
     Value::Array(msgs.iter().map(message_json).collect())
+}
+
+/// A person's card: who they are, how much mail you have with them, and the latest conversations.
+pub fn contact_of(store: &Store, address: &str, limit: usize) -> Value {
+    let addr = address.trim().to_lowercase();
+    let st = store.contact_stats(&addr).unwrap_or_default();
+    let threads = store.thread_rows(&ListFilter::Contact(addr.clone()), limit).unwrap_or_default();
+    let mine = store.accounts().unwrap_or_default().into_iter().find(|a| a.email.eq_ignore_ascii_case(&addr));
+    let name = st.name.clone().or_else(|| mine.as_ref().map(|a| a.name.clone()).filter(|n| !n.trim().is_empty()));
+    json!({
+        "address": addr,
+        "name": name,
+        "isMe": mine.is_some(),
+        "fromThem": st.from_them,
+        "toThem": st.to_them,
+        "first": st.first_ms,
+        "last": st.last_ms,
+        "threads": threads.iter().map(thread_json).collect::<Vec<_>>(),
+    })
+}
+
+/// A local path from a `file://` URL (as QML file dialogs give them) or a plain path.
+pub fn path_of_url(url: &str) -> PathBuf {
+    let Some(rest) = url.strip_prefix("file://") else { return PathBuf::from(url) };
+    let path = percent_decode(rest);
+    // file:///C:/Users/… on Windows
+    let b = path.as_bytes();
+    if cfg!(windows) && b.len() > 2 && b[0] == b'/' && b[2] == b':' {
+        return PathBuf::from(&path[1..]);
+    }
+    PathBuf::from(path)
+}
+
+/// `file://` URL of a local path, for QML (`Qt.openUrlExternally`).
+pub fn url_of_path(path: &std::path::Path) -> String {
+    let p = path.to_string_lossy().replace('\\', "/");
+    let mut out = String::from(if p.starts_with('/') { "file://" } else { "file:///" });
+    for c in p.chars() {
+        match c {
+            '%' => out.push_str("%25"),
+            '#' => out.push_str("%23"),
+            '?' => out.push_str("%3F"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// The folder downloads go to by default.
+pub fn downloads_dir() -> PathBuf {
+    dirs::download_dir().or_else(dirs::home_dir).unwrap_or_else(std::env::temp_dir)
+}
+
+/// Files that run code when opened: they are shown in their folder instead of opened.
+pub fn runs_code(name: &str) -> bool {
+    const KINDS: [&str; 34] = [
+        "exe", "msi", "msp", "bat", "cmd", "com", "scr", "pif", "cpl", "msc", "ps1", "psm1", "vbs", "vbe", "js", "jse",
+        "wsf", "wsh", "hta", "lnk", "reg", "jar", "app", "command", "sh", "bash", "desktop", "appimage", "run", "pkg",
+        "dmg", "deb", "rpm", "url",
+    ];
+    let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    KINDS.contains(&ext.as_str())
 }
 
 /// Parse a JSON array of thread ids sent from QML.
@@ -839,6 +907,40 @@ mod tests {
         let v = account_details(&s);
         assert_eq!(v[0]["imapHost"], "imap.example.com");
         assert!(!v.to_string().contains("hunter2"));
+    }
+
+    #[test]
+    fn contact_cards_and_lists() {
+        let s = seeded();
+        let c = contact_of(&s, " S2@Example.org ", 10);
+        assert_eq!(c["address"], "s2@example.org");
+        assert_eq!((c["fromThem"].as_i64(), c["toThem"].as_i64()), (Some(1), Some(0)));
+        assert_eq!(c["isMe"], false);
+        assert_eq!(c["threads"].as_array().unwrap().len(), 1);
+        assert_eq!(c["threads"][0]["subject"], "S2");
+        let me = contact_of(&s, "u@example.com", 10);
+        assert_eq!((me["isMe"].as_bool(), me["name"].as_str()), (Some(true), Some("U")));
+        assert!(
+            matches!(filter_for(r#"{"list":"contact","contact":"a@x.org"}"#), ListFilter::Contact(ref a) if a == "a@x.org")
+        );
+        let rows = threads_of(&s, r#"{"list":"contact","contact":"s3@example.org","name":"S"}"#, 10);
+        assert_eq!(rows.as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn file_urls_round_trip() {
+        let p = std::path::Path::new("/home/me/Downloads/a b#1?.pdf");
+        let url = url_of_path(p);
+        assert_eq!(url, "file:///home/me/Downloads/a b%231%3F.pdf");
+        assert_eq!(path_of_url(&url), p);
+        assert_eq!(path_of_url("file:///tmp/x%20y.txt"), std::path::Path::new("/tmp/x y.txt"));
+        assert_eq!(path_of_url("/plain/path"), std::path::Path::new("/plain/path"));
+    }
+
+    #[test]
+    fn programs_are_not_opened() {
+        assert!(runs_code("setup.EXE") && runs_code("/x/run.sh") && runs_code("app.desktop"));
+        assert!(!runs_code("report.pdf") && !runs_code("photo.jpeg") && !runs_code("README"));
     }
 
     #[test]

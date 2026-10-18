@@ -19,6 +19,7 @@ finish-args:
   - --talk-name=org.kde.StatusNotifierWatcher
   - --filesystem=~/.local/state/omarchy:ro
   - --filesystem=~/.thunderbird:ro
+  - --filesystem=xdg-download
 cleanup-commands:
   - /app/cleanup-BaseApp.sh
 modules:

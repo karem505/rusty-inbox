@@ -232,7 +232,21 @@ pub struct MessageRow {
     pub body_text: Option<String>,
     pub body_html: Option<String>,
     pub body_fetched: bool,
+    pub has_attachments: bool,
     pub attachments: Vec<(i64, String, String, i64, bool)>,
+}
+
+/// What the mail on this machine says about one address (for the contact card).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ContactStats {
+    pub address: String,
+    pub name: Option<String>,
+    /// messages they sent
+    pub from_them: i64,
+    /// messages with them as a recipient (To, Cc or Bcc)
+    pub to_them: i64,
+    pub first_ms: Option<i64>,
+    pub last_ms: Option<i64>,
 }
 
 /// SQL: thread `t` is Done (flagged, or no message of it is left in an inbox folder).
@@ -266,6 +280,8 @@ pub enum ListFilter {
     Search(String),
     /// structured search (`from:` / `in:` / `has:` / text …) from the search field.
     Query(crate::search::Query),
+    /// conversations with one person: messages from them or with them in To, Cc or Bcc.
+    Contact(String),
 }
 
 /// Counts behind the sidebar badges (see `Store::sidebar_counts`).
@@ -646,6 +662,7 @@ impl Store {
                 (format!("m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH '{q}')"), None)
             }
             ListFilter::Query(q) => (query_condition(q), None),
+            ListFilter::Contact(addr) => (contact_condition(addr), None),
         };
         // in inbox lists a conversation is Done when marked so or when none of it is in the inbox
         let done_col = if matches!(filter, ListFilter::Inbox { .. }) { DONE_EXPR } else { "t.done" };
@@ -699,7 +716,7 @@ impl Store {
         let mut st = db.prepare(
             "SELECT m.id,m.account,m.folder_id,f.role,m.uid,m.message_id,m.subject,m.from_name,m.from_addr,m.to_json,
                     m.cc_json,m.bcc_json,m.reply_to_json,m.date_ms,m.seen,m.flagged,m.preview,m.body_text,m.body_html,
-                    m.body_fetched
+                    m.body_fetched,m.has_attachments
              FROM messages m JOIN folders f ON f.id=m.folder_id WHERE m.thread_id=?1 ORDER BY m.date_ms",
         )?;
         let mut rows: Vec<MessageRow> = st
@@ -728,6 +745,7 @@ impl Store {
                     body_text: r.get(17)?,
                     body_html: r.get(18)?,
                     body_fetched: r.get(19)?,
+                    has_attachments: r.get(20)?,
                     attachments: vec![],
                 })
             })?
@@ -879,6 +897,61 @@ impl Store {
         Ok(n as usize)
     }
 
+    /// Record the attachments of a message whose body was downloaded after a header-only sync,
+    /// and correct its paperclip (the header only allowed a guess). Attachments already stored
+    /// are kept (drafts may refer to their ids). Returns true when rows were added.
+    pub fn add_missing_attachments(&self, message_id: i64, list: &[NewAttachment]) -> CoreResult<bool> {
+        let mut db = self.db.lock();
+        let tx = db.transaction()?;
+        let have: i64 =
+            tx.query_row("SELECT COUNT(*) FROM attachments WHERE message_id=?1", [message_id], |r| r.get(0))?;
+        if have > 0 {
+            return Ok(false);
+        }
+        for a in list {
+            tx.execute(
+                "INSERT INTO attachments(message_id,part,filename,mime,size,content_id,inline) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+                params![message_id, a.part, a.filename, a.mime, a.size as i64, a.content_id, a.inline],
+            )?;
+        }
+        tx.execute(
+            "UPDATE messages SET has_attachments=?2 WHERE id=?1",
+            params![message_id, list.iter().any(|a| !a.inline)],
+        )?;
+        tx.commit()?;
+        Ok(!list.is_empty())
+    }
+
+    /// Counts and dates of the mail exchanged with `address` (any case), and the name they use.
+    pub fn contact_stats(&self, address: &str) -> CoreResult<ContactStats> {
+        let addr = address.trim().to_lowercase();
+        let db = self.db.lock();
+        let (from_them, first_from, last_from, name): (i64, Option<i64>, Option<i64>, Option<String>) = db.query_row(
+            "SELECT COUNT(*), MIN(date_ms), MAX(date_ms),
+                    (SELECT from_name FROM messages n WHERE lower(n.from_addr)=?1 AND coalesce(n.from_name,'')<>''
+                     ORDER BY n.date_ms DESC LIMIT 1)
+             FROM messages m WHERE lower(m.from_addr)=?1",
+            [&addr],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )?;
+        let (to_them, first_to, last_to): (i64, Option<i64>, Option<i64>) = db.query_row(
+            &format!(
+                "SELECT COUNT(*), MIN(date_ms), MAX(date_ms) FROM messages m WHERE {}",
+                recipient_condition(&addr)
+            ),
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?;
+        // no name of their own: the one others wrote in the recipient fields
+        let name = match name.filter(|n| !n.trim().is_empty()) {
+            Some(n) => Some(n),
+            None => recipient_name(&db, &addr)?,
+        };
+        let first_ms = [first_from, first_to].into_iter().flatten().min();
+        let last_ms = [last_from, last_to].into_iter().flatten().max();
+        Ok(ContactStats { address: addr, name, from_them, to_them, first_ms, last_ms })
+    }
+
     /// `(account, folder path, uid)` of a message.
     /// One message (with its thread siblings loaded through `thread_messages`).
     pub fn message(&self, message_id: i64) -> CoreResult<Option<(i64, MessageRow)>> {
@@ -1015,6 +1088,42 @@ impl Store {
 /// SQL literal (single quotes doubled) — values come from the user's search field.
 fn lit(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
+}
+
+/// The display name `addr` (lower case) has in the recipient fields of recent mail.
+fn recipient_name(db: &Connection, addr: &str) -> CoreResult<Option<String>> {
+    let mut st = db.prepare(&format!(
+        "SELECT to_json, cc_json, bcc_json FROM messages m WHERE {} ORDER BY date_ms DESC LIMIT 20",
+        recipient_condition(addr)
+    ))?;
+    let rows = st.query_map([], |r| Ok([r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?]))?;
+    for list in rows.filter_map(Result::ok).flatten() {
+        let Ok(Value::Array(v)) = serde_json::from_str::<Value>(&list) else { continue };
+        for a in v {
+            let mb = a["mailbox"].as_str().or(a["address"].as_str()).unwrap_or("");
+            let n = a["name"].as_str().unwrap_or("").trim();
+            if mb.eq_ignore_ascii_case(addr) && !n.is_empty() && !n.contains('@') {
+                return Ok(Some(n.to_string()));
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// SQL: message `m` has `addr` (lower case) in To, Cc or Bcc.
+fn recipient_condition(addr: &str) -> String {
+    // addresses are stored as JSON objects: {"name":…,"mailbox":"a@b"}
+    let needle = lit(&format!("\"mailbox\":{}", Value::String(addr.to_string())));
+    format!("(instr(lower(m.to_json), {needle}) > 0 OR instr(lower(m.cc_json), {needle}) > 0 OR instr(lower(m.bcc_json), {needle}) > 0)")
+}
+
+/// SQL: message `m` is from `addr` or has it among the recipients.
+fn contact_condition(addr: &str) -> String {
+    let addr = addr.trim().to_lowercase();
+    if addr.is_empty() {
+        return "0".into();
+    }
+    format!("(lower(m.from_addr) = {} OR {})", lit(&addr), recipient_condition(&addr))
 }
 
 /// WHERE clause for a structured search. Every condition is per message (`m`), results are grouped
@@ -1342,6 +1451,73 @@ mod tests {
             category: "personal".into(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn contacts_profile_and_conversations() {
+        let s = Store::in_memory().unwrap();
+        acct(&s);
+        let inbox = s.upsert_folder("user@example.com", "INBOX", "Inbox", Some("/"), Some("inbox"), true).unwrap();
+        let sent = s.upsert_folder("user@example.com", "Sent", "Sent", Some("/"), Some("sent"), true).unwrap();
+        // from Dana, with Erin in Cc
+        let mut a = msg(inbox, 1, "<a@x>", None, "Plan", 1000);
+        a.from_addr = "Dana@Example.org".into();
+        a.from_name = Some("Dana Scott".into());
+        a.cc = json!([{"name": "Erin", "mailbox": "erin@example.org"}]);
+        s.insert_message(&a).unwrap();
+        // our reply, Bcc to Erin
+        let mut b = msg(sent, 1, "<b@x>", Some("<a@x>"), "Re: Plan", 2000);
+        b.from_addr = "user@example.com".into();
+        b.to = json!([{"name": null, "mailbox": "dana@example.org"}]);
+        b.bcc = json!([{"name": "Erin Lee", "mailbox": "Erin@example.org"}]);
+        s.insert_message(&b).unwrap();
+        s.insert_message(&msg(inbox, 2, "<c@x>", None, "Unrelated", 3000)).unwrap();
+
+        let dana = s.contact_stats("DANA@example.org").unwrap();
+        assert_eq!((dana.from_them, dana.to_them), (1, 1));
+        assert_eq!(dana.name.as_deref(), Some("Dana Scott"));
+        assert_eq!((dana.first_ms, dana.last_ms), (Some(1000), Some(2000)));
+        let erin = s.contact_stats("erin@example.org").unwrap();
+        assert_eq!((erin.from_them, erin.to_them), (0, 2), "Cc and Bcc count");
+        assert!(erin.name.is_some(), "name taken from the recipient fields");
+        let nobody = s.contact_stats("nobody@example.org").unwrap();
+        assert_eq!((nobody.from_them, nobody.to_them, nobody.last_ms), (0, 0, None));
+
+        let subjects = |addr: &str| -> Vec<String> {
+            s.thread_rows(&ListFilter::Contact(addr.into()), 10).unwrap().into_iter().map(|r| r.subject).collect()
+        };
+        assert_eq!(subjects("erin@example.org"), vec!["Plan"]);
+        assert_eq!(subjects("dana@example.org"), vec!["Plan"]);
+        assert_eq!(subjects("sender2@example.org"), vec!["Unrelated"]);
+        assert!(subjects("o'brien@example.org").is_empty(), "quotes are escaped");
+        assert!(subjects("").is_empty());
+    }
+
+    #[test]
+    fn attachments_found_after_a_header_only_sync() {
+        let s = Store::in_memory().unwrap();
+        acct(&s);
+        let inbox = s.upsert_folder("user@example.com", "INBOX", "Inbox", Some("/"), Some("inbox"), true).unwrap();
+        let mid = s.insert_message(&msg(inbox, 1, "<a@x>", None, "Big", 1000)).unwrap();
+        let att = |name: &str, inline: bool| NewAttachment {
+            part: "1".into(),
+            filename: name.into(),
+            mime: "application/pdf".into(),
+            size: 10,
+            content_id: None,
+            inline,
+        };
+        assert!(!s.add_missing_attachments(mid, &[]).unwrap());
+        let tid = s.thread_rows(&ListFilter::Contact("sender1@example.org".into()), 1).unwrap()[0].thread_id;
+        assert!(!s.thread_messages(tid).unwrap()[0].has_attachments, "a wrong guess is corrected");
+        assert!(s.add_missing_attachments(mid, &[att("a.pdf", false), att("b.pdf", false)]).unwrap());
+        // a second download does not duplicate them (or change their ids)
+        assert!(!s.add_missing_attachments(mid, &[att("a.pdf", false)]).unwrap());
+        let m = &s.thread_messages(tid).unwrap()[0];
+        assert!(m.has_attachments);
+        assert_eq!(m.attachments.iter().map(|a| a.1.as_str()).collect::<Vec<_>>(), ["a.pdf", "b.pdf"]);
+        assert_eq!(s.attachment_index(m.attachments[1].0).unwrap(), 1);
+        assert!(s.thread_rows(&ListFilter::Contact("sender1@example.org".into()), 1).unwrap()[0].has_attachments);
     }
 
     #[test]

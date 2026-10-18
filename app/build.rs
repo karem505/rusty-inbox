@@ -1,6 +1,6 @@
 use cxx_qt_build::{CxxQtBuilder, QmlFile, QmlModule};
 
-const ICONS: [&str; 47] = [
+const ICONS: [&str; 49] = [
     "account",
     "archive",
     "back",
@@ -14,7 +14,9 @@ const ICONS: [&str; 47] = [
     "close",
     "collapse",
     "compose",
+    "copy",
     "done",
+    "download",
     "drafts",
     "expand",
     "eye",
@@ -71,6 +73,7 @@ fn main() {
         "qml/RecipientField.qml".into(),
         "qml/Composer.qml".into(),
         "qml/TickBox.qml".into(),
+        "qml/ContactCard.qml".into(),
     ]))
     .qrc_resources(icons)
     .qt_module("Quick")

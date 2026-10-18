@@ -16,12 +16,77 @@ Rectangle {
     signal snooze(Item anchor)
     signal close()
     signal respond(string kind)
+    signal contact(string address, string name)     // a name or address was clicked
+    signal openAttachment(int id)
+    signal saveAttachment(int id, string name)
+    signal saveAttachments(var ids)
+
+    // links of this page (people, attachments) go to the app, never to the network
+    readonly property string appLink: "https://rusty-inbox.invalid/"
 
     function esc(s) {
-        return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+        return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;")
     }
-    function names(list) {
-        return (list || []).map(a => a.name || a.mailbox || a.address || a.email || a).filter(x => typeof x === "string").join(", ")
+    function addrOf(a) { return typeof a === "string" ? a : (a.mailbox || a.address || a.email || "") }
+    function nameOf(a) { return typeof a === "string" ? "" : (a.name || "") }
+    // a clickable name (the address shows on hover), opening the person's card
+    function personLink(address, name, cls, label) {
+        if (!address) return esc(label || name)
+        return "<a class='" + cls + "' href='" + esc(appLink + "contact?a=" + encodeURIComponent(address) + "&n=" + encodeURIComponent(name || ""))
+            + "' title='" + esc(address) + "'>" + esc(label || name || address) + "</a>"
+    }
+    function people(list) {
+        return (list || []).filter(a => addrOf(a) || nameOf(a)).map(a => personLink(addrOf(a), nameOf(a), "person")).join(", ")
+    }
+    function sizeLabel(n) {
+        if (!(n > 0)) return ""
+        if (n < 1024) return n + " B"
+        if (n < 1024 * 1024) return Math.round(n / 1024) + " KB"
+        return (n / 1024 / 1024).toFixed(n < 10 * 1024 * 1024 ? 1 : 0) + " MB"
+    }
+    readonly property string clipSvg: "<svg viewBox='0 0 24 24' width='15' height='15' fill='none' stroke='currentColor' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.1-8.1a3.4 3.4 0 0 1 4.8 4.8l-8.1 8.1a1.7 1.7 0 0 1-2.4-2.4l7.4-7.4'/></svg>"
+    readonly property string downloadSvg: "<svg viewBox='0 0 24 24' width='15' height='15' fill='none' stroke='currentColor' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M12 4v11'/><path d='M7.5 10.5L12 15l4.5-4.5'/><path d='M5 19.5h14'/></svg>"
+    function attachmentChips(list) {
+        if (!list.length) return ""
+        const chips = list.map(a => "<span class='att' id='att-" + a.id + "'>"
+            + "<a class='open' href='" + appLink + "attachment?do=open&id=" + a.id + "' title='" + esc(qsTr("Open %1").arg(a.name)) + "'>"
+            + clipSvg + "<span class='name'>" + esc(a.name) + "</span><span class='size'>" + sizeLabel(a.size) + "</span></a>"
+            + "<a class='save' href='" + appLink + "attachment?do=save&id=" + a.id + "' title='" + esc(qsTr("Save %1…").arg(a.name)) + "'>" + downloadSvg + "</a>"
+            + "</span>").join("")
+        const all = list.length > 1
+            ? "<a class='saveall' href='" + appLink + "attachment?do=saveall&ids=" + list.map(a => a.id).join(",") + "'>" + downloadSvg + esc(qsTr("Save all")) + "</a>"
+            : ""
+        return "<div class='atts'><div class='atthead'>" + esc(list.length === 1 ? qsTr("1 attachment") : qsTr("%1 attachments").arg(list.length)) + all + "</div>" + chips + "</div>"
+    }
+    function attachmentName(id) {
+        for (const m of (lastMessages || []))
+            for (const a of (m.attachments || [])) if (a.id === id) return a.name
+        return ""
+    }
+    // a chip shows a spinner while its file downloads
+    function setBusy(id, on) {
+        web.runJavaScript("(function(){var e=document.getElementById('att-" + Number(id) + "');if(e)e.classList." + (on ? "add" : "remove") + "('busy')})()")
+    }
+    // scripted check: click the first element matching `selector`
+    function clickFirst(selector) {
+        web.runJavaScript("(function(){var e=document.querySelector(" + JSON.stringify(selector) + ");if(e)e.click();return !!e})()")
+    }
+    function query(url) {
+        const out = {}
+        const q = url.indexOf("?") >= 0 ? url.substring(url.indexOf("?") + 1) : ""
+        for (const kv of q.split("&")) {
+            const i = kv.indexOf("=")
+            if (i > 0) out[kv.substring(0, i)] = decodeURIComponent(kv.substring(i + 1).replace(/\+/g, " "))
+        }
+        return out
+    }
+    function followAppLink(url) {
+        const q = query(url)
+        const path = url.substring(appLink.length).split("?")[0]
+        if (path === "contact" && q.a) root.contact(q.a, q.n || "")
+        else if (path === "attachment" && q.do === "open") root.openAttachment(Number(q.id))
+        else if (path === "attachment" && q.do === "save") root.saveAttachment(Number(q.id), attachmentName(Number(q.id)))
+        else if (path === "attachment" && q.do === "saveall") root.saveAttachments(q.ids.split(",").map(Number))
     }
     function css(c) { return String(c) }
     function fontStack() { return (Theme.font ? "'" + Theme.font + "'," : "") + "sans-serif" }
@@ -49,13 +114,19 @@ Rectangle {
             const doc = "<!doctype html><html><head><meta charset='utf-8'><base target='_blank'>"
                 + "<style>body{margin:0;font-family:sans-serif;font-size:14px;color:#1d1d22;overflow-wrap:anywhere}img{max-width:100%;height:auto}</style>"
                 + "</head><body>" + body + "</body></html>"
-            const files = (m.attachments || []).filter(a => !a.inline)
-                .map(a => "<span class='att'>" + esc(a.name) + "</span>").join("")
-            parts.push("<section class='msg'><header><div class='top'><div><b>" + esc(m.from) + "</b> <span class='addr'>&lt;" + esc(m.fromAddr) + "&gt;</span></div>"
+            const files = attachmentChips((m.attachments || []).filter(a => !a.inline))
+            const fromName = m.from && m.from !== m.fromAddr ? m.from : ""
+            const recipients = [[qsTr("To"), m.to], [qsTr("Cc"), m.cc], [qsTr("Bcc"), m.bcc]]
+                .filter(r => (r[1] || []).length)
+                .map(r => "<span class='rcpt'><span class='lbl'>" + r[0] + ":</span> " + people(r[1]) + "</span>")
+                .join("")
+            parts.push("<section class='msg'><header><div class='top'><div class='from'>"
+                + personLink(m.fromAddr, fromName, "who", m.from)
+                + (fromName ? " " + personLink(m.fromAddr, fromName, "addr", "<" + m.fromAddr + ">") : "") + "</div>"
                 + "<span class='date'>" + esc(new Date(m.date).toLocaleString(Qt.locale(), "ddd d MMM yyyy, hh:mm")) + "</span></div>"
-                + "<div class='to'>" + qsTr("To") + ": " + esc(names(m.to)) + (names(m.cc) ? " · " + qsTr("Cc") + ": " + esc(names(m.cc)) : "") + "</div></header>"
+                + (recipients ? "<div class='to'>" + recipients + "</div>" : "") + "</header>"
                 + "<div class='paper'><iframe sandbox='allow-same-origin allow-popups' srcdoc=\"" + esc(doc) + "\"></iframe></div>"
-                + (files ? "<div class='atts'>" + files + "</div>" : "") + "</section>")
+                + files + "</section>")
         }
         const subject = msgs.length ? esc(msgs[msgs.length - 1].subject) : ""
         const page = "<!doctype html><html><head><meta charset='utf-8'><style>"
@@ -69,7 +140,19 @@ Rectangle {
             + ".date{flex:none;color:" + css(Theme.textMuted) + ";font-size:12px}"
             + ".paper{background:#fff;border-radius:" + (Theme.dark ? "10px;padding:14px 16px" : "0") + "}"
             + "iframe{border:0;width:100%;display:block}"
-            + ".atts{margin-top:10px}.att{display:inline-block;border:1px solid " + css(Theme.border) + ";border-radius:8px;padding:6px 10px;margin:0 6px 6px 0;font-size:12px;color:" + css(Theme.text) + "}"
+            + "a{color:inherit;text-decoration:none}"
+            + ".from a.who{font-weight:600;color:" + css(Theme.textStrong) + "}"
+            + "a.who,a.addr,a.person{border-radius:4px;cursor:pointer}"
+            + "a.who:hover,a.addr:hover,a.person:hover{color:" + css(Theme.accent) + ";text-decoration:underline;text-underline-offset:2px}"
+            + ".to{margin-top:2px;line-height:1.6}.rcpt{margin-right:12px}.rcpt .lbl{opacity:.8}.to a.person{color:" + css(Theme.textSubtle) + "}"
+            + ".atts{margin-top:12px}.atthead{display:flex;align-items:center;gap:14px;font-size:12px;color:" + css(Theme.textMuted) + ";margin-bottom:8px}"
+            + ".att{display:inline-flex;align-items:stretch;border:1px solid " + css(Theme.border) + ";border-radius:8px;margin:0 8px 8px 0;font-size:13px;color:" + css(Theme.text) + ";background:" + css(Theme.surface) + ";overflow:hidden;max-width:100%}"
+            + ".att a{display:inline-flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;transition:background .11s}"
+            + ".att a:hover{background:" + css(Theme.hover) + "}.att a.save{border-left:1px solid " + css(Theme.border) + ";color:" + css(Theme.icon) + "}"
+            + ".att a.save:hover{color:" + css(Theme.accent) + "}.att svg{flex:none;color:" + css(Theme.icon) + "}"
+            + ".att .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px}.att .size{color:" + css(Theme.textMuted) + ";font-size:11px}"
+            + ".att.busy{opacity:.6;pointer-events:none}.att.busy .open svg{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}"
+            + "a.saveall{display:inline-flex;align-items:center;gap:5px;color:" + css(Theme.accent) + ";cursor:pointer}a.saveall svg{color:" + css(Theme.accent) + "}a.saveall:hover{text-decoration:underline}"
             + "</style></head><body><h1>" + subject + "</h1>" + parts.join("")
             + "<script>function fit(f){try{f.style.height=f.contentDocument.documentElement.scrollHeight+'px'}catch(e){}}"
             + "document.querySelectorAll('iframe').forEach(f=>{f.onload=()=>{fit(f);setTimeout(()=>fit(f),500);setTimeout(()=>fit(f),2000)}})</script>"
@@ -77,7 +160,7 @@ Rectangle {
         web.loadHtml(page, "about:blank")
     }
 
-    readonly property bool inInbox: ["inbox", "pinned", "snoozed", "folder"].indexOf(listName) >= 0
+    readonly property bool inInbox: ["inbox", "pinned", "snoozed", "folder", "contact"].indexOf(listName) >= 0
 
     Rectangle {
         id: bar
@@ -195,6 +278,11 @@ Rectangle {
         backgroundColor: Theme.window
 
         onNavigationRequested: (request) => {
+            if (request.url.toString().startsWith(root.appLink)) {
+                request.reject()
+                root.followAppLink(request.url.toString())
+                return
+            }
             const isPage = request.url.toString() === "about:blank" || request.url.toString().startsWith("data:")
             if (!isPage && request.navigationType === WebEngineNavigationRequest.LinkClickedNavigation) {
                 Qt.openUrlExternally(request.url)

@@ -85,6 +85,25 @@ pub mod qobject {
         #[qinvokable]
         fn file_info_json(self: &Backend, url: &QString) -> QString;
 
+        /// A person's card for an address (`engine::contact_of`): name, mail counts, conversations.
+        #[qinvokable]
+        fn contact_json(self: &Backend, address: &QString) -> QString;
+
+        /// Download an attachment of received mail (once; later from the cache) and open it with
+        /// the system's app; answers with `attachment_ready` (action "open", or "reveal" for files
+        /// that would run code: their folder opens instead).
+        #[qinvokable]
+        fn open_attachment(self: Pin<&mut Backend>, attachment_id: i64);
+
+        /// Save an attachment to `dest_url` (a file, or a folder: it keeps its name there);
+        /// answers with `attachment_ready` (action "save").
+        #[qinvokable]
+        fn save_attachment(self: Pin<&mut Backend>, attachment_id: i64, dest_url: &QString);
+
+        /// `file://` URL of the Downloads folder.
+        #[qinvokable]
+        fn downloads_url(self: &Backend) -> QString;
+
         /// Save a draft locally (id 0 creates it); with `upload` also to the server's Drafts.
         /// Returns the outbox id.
         #[qinvokable]
@@ -230,6 +249,17 @@ pub mod qobject {
         /// A new-mail notification was clicked.
         #[qsignal]
         fn open_requested(self: Pin<&mut Backend>, thread_id: i64);
+
+        /// An attachment is on disk (`url` of the file, `folder_url` of its folder) or failed (`error`).
+        #[qsignal]
+        fn attachment_ready(
+            self: Pin<&mut Backend>,
+            attachment_id: i64,
+            action: QString,
+            url: QString,
+            folder_url: QString,
+            error: QString,
+        );
     }
 
     impl cxx_qt::Threading for Backend {}
@@ -420,6 +450,35 @@ impl qobject::Backend {
         QString::from(&engine::file_info(&url.to_string()).to_string())
     }
 
+    fn contact_json(&self, address: &QString) -> QString {
+        QString::from(&engine::contact_of(engine::core().store(), &address.to_string(), 30).to_string())
+    }
+
+    fn open_attachment(self: Pin<&mut Self>, attachment_id: i64) {
+        let qt = self.qt_thread();
+        engine::runtime().spawn(async move {
+            let r = engine::core().attachment_file(attachment_id).await.map_err(|e| format!("{e:#}"));
+            let action = match &r {
+                Ok(p) if engine::runs_code(&p.to_string_lossy()) => "reveal",
+                _ => "open",
+            };
+            report_attachment(qt, attachment_id, action, r);
+        });
+    }
+
+    fn save_attachment(self: Pin<&mut Self>, attachment_id: i64, dest_url: &QString) {
+        let qt = self.qt_thread();
+        let dest = engine::path_of_url(&dest_url.to_string());
+        engine::runtime().spawn(async move {
+            let r = engine::core().save_attachment(attachment_id, &dest).await.map_err(|e| format!("{e:#}"));
+            report_attachment(qt, attachment_id, "save", r);
+        });
+    }
+
+    fn downloads_url(&self) -> QString {
+        QString::from(&engine::url_of_path(&engine::downloads_dir()))
+    }
+
     fn save_draft(&self, id: i64, draft_json: &QString, upload: bool) -> i64 {
         let d = draft_of(draft_json);
         let id = engine::core().save_draft(id, &d).unwrap_or(id);
@@ -597,6 +656,34 @@ pub fn set_initial_request(r: &str) {
 fn draft_of(json: &QString) -> rusty_inbox_core::compose::Draft {
     let v: serde_json::Value = serde_json::from_str(&json.to_string()).unwrap_or_default();
     rusty_inbox_core::compose::Draft::from_json(&v)
+}
+
+/// Hands the outcome of an attachment download to QML.
+fn report_attachment(
+    qt: cxx_qt::CxxQtThread<qobject::Backend>,
+    attachment_id: i64,
+    action: &'static str,
+    result: Result<std::path::PathBuf, String>,
+) {
+    let (url, folder, err) = match result {
+        Ok(p) => {
+            let folder = p.parent().map(engine::url_of_path).unwrap_or_default();
+            (engine::url_of_path(&p), folder, String::new())
+        }
+        Err(e) => {
+            tracing::warn!("attachment {attachment_id}: {e}");
+            (String::new(), String::new(), e)
+        }
+    };
+    let _ = qt.queue(move |mut obj: Pin<&mut qobject::Backend>| {
+        obj.as_mut().attachment_ready(
+            attachment_id,
+            QString::from(action),
+            QString::from(&url),
+            QString::from(&folder),
+            QString::from(&err),
+        )
+    });
 }
 
 /// Sends the update state to QML: `update_changed` always, `update_available` when `newly` found.

@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
 import org.rustyinbox
 import Qt.labs.platform as Platform
 
@@ -76,6 +77,7 @@ ApplicationWindow {
             win.updateVersion = (u.state === "available" || u.state === "downloading" || u.state === "ready") && u.latest ? u.latest.version : ""
             if (u.state === "ready" && u.quit) Qt.quit()     // the Windows installer takes over
         }
+        onAttachment_ready: (id, action, url, folderUrl, error) => win.attachmentReady(id, action, url, folderUrl, error)
         onOpen_requested: (threadId) => {
             win.showWindow()
             win.select({ list: "inbox" })
@@ -345,6 +347,71 @@ ApplicationWindow {
         if (mid > 0) openComposer(JSON.parse(backend.compose_json("draft", mid, "")), 0)
     }
 
+    // ---- people and attachments in the reader ----------------------------------------------------
+    // a new message to someone from the reader's contact card, sent from the account the
+    // conversation belongs to
+    function writeTo(address, name) {
+        if (composerLoader.active) { toast.show(qsTr("Finish the open message first"), false); return }
+        const t = threads.find(x => x.id === openId)
+        const draft = JSON.parse(backend.compose_json("mailto:" + address, 0, t ? t.account : (spec.account || "")))
+        draft.to = [{ name: name || null, address: address }]
+        openComposer(draft, 0)
+    }
+    function showContact(address, name) {
+        select({ list: "contact", contact: address, name: name || "" })
+    }
+    property var savingAll: null        // {left, saved, failed, folderUrl} while "Save all" runs
+    function attachmentLabel(id) { return (readerLoader.item && readerLoader.item.attachmentName(id)) || qsTr("Attachment") }
+    function openAttachment(id) {
+        if (readerLoader.item) readerLoader.item.setBusy(id, true)
+        backend.open_attachment(id)
+    }
+    function saveAttachment(id, name) {
+        saveDialog.attachmentId = id
+        saveDialog.currentFolder = backend.downloads_url()
+        saveDialog.selectedFile = backend.downloads_url() + "/" + encodeURIComponent(name || "attachment")
+        saveDialog.open()
+    }
+    function saveAttachments(ids) {
+        folderDialog.attachmentIds = ids
+        folderDialog.currentFolder = backend.downloads_url()
+        folderDialog.open()
+    }
+    function saveAttachmentsTo(ids, folderUrl) {
+        savingAll = { left: ids.length, saved: 0, failed: 0, folderUrl: folderUrl }
+        for (const id of ids) {
+            if (readerLoader.item) readerLoader.item.setBusy(id, true)
+            backend.save_attachment(id, folderUrl)
+        }
+    }
+    function attachmentReady(id, action, url, folderUrl, error) {
+        if (readerLoader.item) readerLoader.item.setBusy(id, false)
+        const name = attachmentLabel(id)
+        if (autotestDir !== "") console.warn("AUTOTEST attachment", id, action, error === "" ? "ok" : error)
+        if (action === "save" && savingAll) {
+            const s = savingAll
+            if (error === "") s.saved++; else s.failed++
+            if (--s.left > 0) return
+            savingAll = null
+            if (s.failed === 0) toast.showAction(qsTr("Saved %1 attachments").arg(s.saved), qsTr("Show in folder"), () => Qt.openUrlExternally(s.folderUrl), 8000)
+            else toast.show(qsTr("Saved %1 of %2 attachments (%3)").arg(s.saved).arg(s.saved + s.failed).arg(error || qsTr("see the log")), false)
+            return
+        }
+        if (error !== "") {
+            toast.show(error === "offline" ? qsTr("%1 can be downloaded once you are online").arg(name)
+                                           : qsTr("Could not get %1: %2").arg(name).arg(error), false)
+            return
+        }
+        if (action === "save") {
+            toast.showAction(qsTr("Saved %1").arg(name), qsTr("Show in folder"), () => Qt.openUrlExternally(folderUrl), 8000)
+        } else if (action === "reveal") {
+            if (autotestDir === "") Qt.openUrlExternally(folderUrl)
+            toast.show(qsTr("%1 can run programs, so it was not opened. Its folder is open.").arg(name), false)
+        } else if (autotestDir === "" && !Qt.openUrlExternally(url)) {
+            toast.showAction(qsTr("No app opens %1").arg(name), qsTr("Show in folder"), () => Qt.openUrlExternally(folderUrl), 8000)
+        }
+    }
+
     function openSettings(page) {
         settingsPage.page = page
         settingsPage.shown = true
@@ -353,6 +420,7 @@ ApplicationWindow {
     function listTitle(s) {
         const names = ({ inbox: qsTr("Smart Inbox"), pinned: qsTr("Pinned"), snoozed: qsTr("Snoozed"), done: qsTr("Done"),
                          sent: qsTr("Sent"), drafts: qsTr("Drafts"), scheduled: qsTr("Scheduled"), archive: qsTr("Archive"), spam: qsTr("Spam"), trash: qsTr("Trash") })
+        if (s.list === "contact") return qsTr("Conversations with %1").arg(s.name || s.contact)
         let t = s.folder ? qsTr("Folder") : (names[s.list] || s.list)
         if (s.list === "inbox" && !prefs.smartInbox && !s.category) t = qsTr("Inbox")
         if (s.category) t = ({ personal: qsTr("People"), notifications: qsTr("Notifications"), newsletters: qsTr("Newsletters"), invitations: qsTr("Invitations") })[s.category] || s.category
@@ -375,7 +443,7 @@ ApplicationWindow {
     // ---- keyboard ---------------------------------------------------------------------------
     // single-key shortcuts only while the mail view has the keyboard (not in Settings or while
     // writing: the composer handles its own keys)
-    readonly property bool keysOn: !settingsPage.shown && !composerLoader.active
+    readonly property bool keysOn: !settingsPage.shown && !composerLoader.active && !contactCard.opened
     Shortcut { sequences: ["C", "Ctrl+N"]; enabled: !settingsPage.shown && !composerLoader.active; onActivated: win.compose("new", 0) }
     Shortcut { sequence: "R"; enabled: win.keysOn; onActivated: win.respond("reply") }
     Shortcut { sequence: "A"; enabled: win.keysOn; onActivated: win.respond("replyAll") }
@@ -513,6 +581,10 @@ ApplicationWindow {
                     function onSnooze(anchor) { win.snoozeTargets([win.openId], anchor) }
                     function onClose() { win.closeThread() }
                     function onRespond(kind) { win.respond(kind) }
+                    function onContact(address, name) { contactCard.show(address, name) }
+                    function onOpenAttachment(id) { win.openAttachment(id) }
+                    function onSaveAttachment(id, name) { win.saveAttachment(id, name) }
+                    function onSaveAttachments(ids) { win.saveAttachments(ids) }
                 }
             }
         }
@@ -531,6 +603,32 @@ ApplicationWindow {
             onClosed: shown = false
             onNotice: (text) => toast.show(text, false)
             z: 5
+        }
+
+        ContactCard {
+            id: contactCard
+            backend: win.core
+            onWriteTo: (address, name) => win.writeTo(address, name)
+            onShowAll: (address) => win.showContact(address, contactCard.displayName)
+            onOpenConversation: (address, threadId) => { win.showContact(address, contactCard.displayName); win.openThread(threadId) }
+            onNotice: (text) => toast.show(text, false)
+        }
+
+        FileDialog {
+            id: saveDialog
+            property int attachmentId: 0
+            title: qsTr("Save attachment")
+            fileMode: FileDialog.SaveFile
+            onAccepted: {
+                if (readerLoader.item) readerLoader.item.setBusy(attachmentId, true)
+                backend.save_attachment(attachmentId, selectedFile.toString())
+            }
+        }
+        FolderDialog {
+            id: folderDialog
+            property var attachmentIds: []
+            title: qsTr("Save attachments to")
+            onAccepted: win.saveAttachmentsTo(attachmentIds, selectedFolder.toString())
         }
 
         Toast {
@@ -553,7 +651,8 @@ ApplicationWindow {
     onFrameSwapped: if (!firstFrame) { firstFrame = true; if (autotestDir !== "") console.warn("AUTOTEST firstframe", threads.length) }
 
     function shot(name, then) {
-        page.grabToImage(r => { r.saveToFile(autotestDir + "/" + name + ".png"); console.warn("AUTOTEST shot", name); if (then) then() })
+        // the window's root item: the page plus popups (menus, dialogs, the contact card)
+        (win.contentItem.parent || page).grabToImage(r => { r.saveToFile(autotestDir + "/" + name + ".png"); console.warn("AUTOTEST shot", name); if (then) then() })
     }
     function log(what) {
         console.warn("AUTOTEST", what, JSON.stringify({ threads: threads.length, inbox: sidebarModel.inbox, pinned: sidebarModel.pinned, snoozed: sidebarModel.snoozed, pending: pending.length, open: openId }))
@@ -663,7 +762,32 @@ ApplicationWindow {
             case 76: { const u = JSON.parse(backend.update_json()); win.log("update " + u.state + " " + (u.latest ? u.latest.version : "-") + " method " + u.method.id); win.shot("28-updates"); break }
             case 77: settingsPage.shown = false; break
             case 78: win.shot("29-update-badge"); break
-            case 79: console.warn("AUTOTEST end"); Qt.quit(); break
+            // attachments and the contact card of a person in the reader
+            case 79: {
+                win.select({ list: "inbox" })
+                const t = win.threads.find(x => x.attachments) || win.threads[0]
+                if (t) { win.picked.att = t.id; win.openThread(t.id) }
+                break
+            }
+            case 80: break
+            case 81: {
+                const m = readerLoader.item ? (readerLoader.item.lastMessages || []) : []
+                const atts = [].concat(...m.map(x => (x.attachments || []).filter(a => !a.inline)))
+                win.log("attachments shown " + atts.map(a => a.name).join(","))
+                win.shot("30-attachments")
+                if (atts.length) win.openAttachment(atts[0].id)     // offline and not cached: a notice
+                break
+            }
+            case 82: if (readerLoader.item) readerLoader.item.clickFirst(".to a.person"); break
+            case 83: win.log("contact card " + contactCard.opened + " " + contactCard.address + " threads " + contactCard.threads.length + " | " + contactCard.summary()); win.shot("31-contact-card"); break
+            case 84: contactCard.writeTo(contactCard.address, contactCard.displayName); contactCard.close(); break
+            case 85: win.log("write to contact " + composerLoader.active + " to=" + JSON.stringify(composerLoader.active ? composerLoader.item.draft.to : null)); win.shot("32-write-to-contact"); break
+            case 86: if (composerLoader.active) composerLoader.item.discard(); if (win.picked.att) win.openThread(win.picked.att); break
+            case 87: break
+            case 88: if (readerLoader.item) readerLoader.item.clickFirst(".from a.who"); break
+            case 89: { const a = contactCard.address; contactCard.close(); if (a) win.showContact(a, contactCard.displayName); break }
+            case 90: win.log("contact conversations " + win.listTitle(win.spec)); win.shot("33-contact-conversations"); break
+            case 91: console.warn("AUTOTEST end"); Qt.quit(); break
             }
         }
     }

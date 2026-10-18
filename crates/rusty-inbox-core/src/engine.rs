@@ -301,7 +301,12 @@ impl Engine {
         let msgs = store.thread_messages(tid).unwrap_or_default();
         let missing: Vec<i64> = msgs
             .iter()
-            .filter(|m| !m.body_fetched || m.body_html.as_deref().is_some_and(has_cid_refs))
+            // (a paperclip without attachment rows: opened before attachments were recorded)
+            .filter(|m| {
+                !m.body_fetched
+                    || m.body_html.as_deref().is_some_and(has_cid_refs)
+                    || (m.has_attachments && m.attachments.is_empty())
+            })
             .map(|m| m.id)
             .collect();
         if missing.is_empty() {
@@ -314,6 +319,8 @@ impl Engine {
                 if let Some(parsed) = mail::mime::parse(&raw, true) {
                     let html = parsed.body_html.as_deref().map(|h| self.resolve_inline_images(mid, h, &raw));
                     let _ = store.set_body(mid, parsed.body_text.as_deref(), html.as_deref());
+                    // big mails are synced header-only: their attachments are only known now
+                    let _ = store.add_missing_attachments(mid, &parsed.attachments);
                 }
             }
             self.release(c).await;
@@ -339,6 +346,62 @@ impl Engine {
             urls.push((cid, format!("data:{mime};base64,{b64}")));
         }
         mail::mime::rewrite_cids(html, &urls)
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // attachments of received mail
+    // ---------------------------------------------------------------------------------------
+
+    /// The attachment as a local file: downloaded from the server the first time, then served
+    /// from the cache (`cache/messagesData/<message>/attachments/<attachment>/<name>`).
+    pub async fn attachment_file(&self, attachment_id: i64) -> anyhow::Result<PathBuf> {
+        let store = &self.inner.store;
+        let (acc, path, uid, _part, name, _mime, cached, mid) =
+            store.attachment_location(attachment_id)?.ok_or_else(|| anyhow::anyhow!("the message is gone"))?;
+        if let Some(p) = cached.map(PathBuf::from).filter(|p| p.is_file()) {
+            return Ok(p);
+        }
+        if !self.inner.cfg.network {
+            anyhow::bail!("offline");
+        }
+        let index = store.attachment_index(attachment_id)?;
+        let mut c = self.connect(&acc).await.ok_or_else(|| anyhow::anyhow!("cannot reach the mail server"))?;
+        let raw = c.fetch_full(&path, uid).await;
+        self.release(c).await;
+        let raw = raw?.ok_or_else(|| anyhow::anyhow!("the message is no longer on the server"))?;
+        let (_n, _m, bytes) =
+            mail::mime::attachment_bytes(&raw, index).ok_or_else(|| anyhow::anyhow!("{name}: part not found"))?;
+        let dir = self
+            .inner
+            .cfg
+            .cache_dir
+            .join("messagesData")
+            .join(mid.to_string())
+            .join("attachments")
+            .join(attachment_id.to_string());
+        std::fs::create_dir_all(&dir)?;
+        let file = dir.join(safe_file_name(&name));
+        std::fs::write(&file, &bytes)?;
+        let _ = store.set_attachment_path(attachment_id, &file.to_string_lossy());
+        Ok(file)
+    }
+
+    /// Save an attachment to `dest`: a file path, or an existing folder (the attachment keeps its
+    /// own name there, with ` (1)`, ` (2)`… added rather than replacing a file). Returns the path
+    /// written.
+    pub async fn save_attachment(&self, attachment_id: i64, dest: &Path) -> anyhow::Result<PathBuf> {
+        let src = self.attachment_file(attachment_id).await?;
+        let target = if dest.is_dir() {
+            let name = src.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            unique_path(dest, &safe_file_name(&name))
+        } else {
+            dest.to_path_buf()
+        };
+        if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::copy(&src, &target).map_err(|e| anyhow::anyhow!("{}: {e}", target.display()))?;
+        Ok(target)
     }
 
     // ---------------------------------------------------------------------------------------
@@ -568,6 +631,56 @@ impl Engine {
     }
 }
 
+/// A file name that is safe on every platform: no folders, no characters Windows rejects, no
+/// leading dots, at most 200 bytes (the extension is kept).
+pub fn safe_file_name(name: &str) -> String {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or("");
+    let mut s: String = base
+        .chars()
+        .map(|c| if c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*') { '_' } else { c })
+        .collect();
+    s = s.trim().trim_start_matches('.').trim_end_matches(['.', ' ']).to_string();
+    if s.is_empty() {
+        return "attachment".into();
+    }
+    let stem = s.split('.').next().unwrap_or("").to_ascii_uppercase();
+    let reserved = ["CON", "PRN", "AUX", "NUL"].contains(&stem.as_str())
+        || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.len() == 4
+            && stem.as_bytes()[3].is_ascii_digit());
+    if reserved {
+        s.insert(0, '_');
+    }
+    if s.len() > 200 {
+        let (stem, ext) = split_ext(&s);
+        let ext = if ext.len() <= 20 { ext.to_string() } else { String::new() };
+        let mut cut = 200 - ext.len();
+        while !stem.is_char_boundary(cut.min(stem.len())) {
+            cut -= 1;
+        }
+        s = format!("{}{ext}", &stem[..cut.min(stem.len())]);
+    }
+    s
+}
+
+/// `("report", ".pdf")`; names without an extension (or dot files) have an empty one.
+fn split_ext(name: &str) -> (&str, &str) {
+    match name.rfind('.') {
+        Some(i) if i > 0 => (&name[..i], &name[i..]),
+        _ => (name, ""),
+    }
+}
+
+/// `dir/name`, or `dir/name (1).ext`, `dir/name (2).ext`… when that file exists already.
+fn unique_path(dir: &Path, name: &str) -> PathBuf {
+    let first = dir.join(name);
+    if !first.exists() {
+        return first;
+    }
+    let (stem, ext) = split_ext(name);
+    (1..).map(|n| dir.join(format!("{stem} ({n}){ext}"))).find(|p| !p.exists()).unwrap_or(first)
+}
+
 /// Html still referencing `cid:` parts (as an attribute value or css url()).
 fn has_cid_refs(html: &str) -> bool {
     let l = html.to_ascii_lowercase();
@@ -695,6 +808,68 @@ mod tests {
         assert!(transient("connect to mail.example.com:993 timed out"));
         assert!(!transient("SMTP send: permanent error (550): mailbox unavailable"));
         assert!(!transient("SMTP send: Connection error: authentication failed"));
+    }
+
+    #[test]
+    fn attachment_file_names() {
+        assert_eq!(safe_file_name("report.pdf"), "report.pdf");
+        assert_eq!(safe_file_name("../../etc/passwd"), "passwd");
+        assert_eq!(safe_file_name("C:\\Users\\x\\a.txt"), "a.txt");
+        assert_eq!(safe_file_name("a<b>:c|d?.txt"), "a_b__c_d_.txt");
+        assert_eq!(safe_file_name(".hidden"), "hidden");
+        assert_eq!(safe_file_name("..."), "attachment");
+        assert_eq!(safe_file_name(""), "attachment");
+        assert_eq!(safe_file_name("CON.txt"), "_CON.txt");
+        assert_eq!(safe_file_name("com1"), "_com1");
+        assert_eq!(safe_file_name("tab\tname.doc"), "tab_name.doc");
+        assert_eq!(safe_file_name("عقد العمل.pdf"), "عقد العمل.pdf");
+        let long = format!("{}.pdf", "ع".repeat(300));
+        let s = safe_file_name(&long);
+        assert!(s.len() <= 200 && s.ends_with(".pdf"), "{}", s.len());
+    }
+
+    #[test]
+    fn saved_attachments_never_replace_files() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(unique_path(dir.path(), "a.pdf"), dir.path().join("a.pdf"));
+        std::fs::write(dir.path().join("a.pdf"), b"1").unwrap();
+        assert_eq!(unique_path(dir.path(), "a.pdf"), dir.path().join("a (1).pdf"));
+        std::fs::write(dir.path().join("a (1).pdf"), b"2").unwrap();
+        assert_eq!(unique_path(dir.path(), "a.pdf"), dir.path().join("a (2).pdf"));
+        std::fs::write(dir.path().join("README"), b"3").unwrap();
+        assert_eq!(unique_path(dir.path(), "README"), dir.path().join("README (1)"));
+    }
+
+    #[tokio::test]
+    async fn attachments_come_from_the_cache_when_offline() {
+        let (e, dir, ids) = engine();
+        let s = e.store();
+        let mid = s.thread_messages(ids[0]).unwrap()[0].id;
+        let a = crate::store::NewAttachment {
+            part: "1".into(),
+            filename: "notes.txt".into(),
+            mime: "text/plain".into(),
+            size: 5,
+            content_id: None,
+            inline: false,
+        };
+        s.add_missing_attachments(mid, &[a]).unwrap();
+        let aid = s.thread_messages(ids[0]).unwrap()[0].attachments[0].0;
+        let err = e.attachment_file(aid).await.unwrap_err().to_string();
+        assert!(err.contains("offline"), "{err}");
+        assert!(e.attachment_file(9999).await.is_err());
+        // once downloaded, the cached copy is used without a server
+        let cached = dir.path().join("cached-notes.txt");
+        std::fs::write(&cached, b"hello").unwrap();
+        s.set_attachment_path(aid, &cached.to_string_lossy()).unwrap();
+        assert_eq!(e.attachment_file(aid).await.unwrap(), cached);
+        let out = tempfile::tempdir().unwrap();
+        let first = e.save_attachment(aid, out.path()).await.unwrap();
+        let second = e.save_attachment(aid, out.path()).await.unwrap();
+        assert_eq!(first, out.path().join("cached-notes.txt"));
+        assert_eq!(second, out.path().join("cached-notes (1).txt"));
+        let named = e.save_attachment(aid, &out.path().join("sub/renamed.txt")).await.unwrap();
+        assert_eq!(std::fs::read(named).unwrap(), b"hello");
     }
 
     #[test]
