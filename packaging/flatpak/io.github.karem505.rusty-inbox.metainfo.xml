@@ -82,11 +82,13 @@
       <description>
         <p>New:</p>
         <ul>
+          <li>New mail shows the moment it arrives (IMAP IDLE push), with a regular check for servers without it</li>
           <li>Download attachments of received mail: open one with a click, save it anywhere, or save all of a message's attachments at once</li>
           <li>Click any name or address in a message (From, To, Cc, Bcc) to open the person's card: write to them, copy the address, or see all your conversations with them</li>
         </ul>
         <p>Fixes:</p>
         <ul>
+          <li>A reply to a conversation marked Done or snoozed brings it back to the Inbox (it stayed hidden)</li>
           <li>Attachments of large messages show once the message is opened</li>
         </ul>
       </description>

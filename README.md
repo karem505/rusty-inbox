@@ -29,6 +29,8 @@ native Rust and the interface is Qt Quick, not a browser shell.
 
 - **Smart Inbox.** Mail from people comes first. Notifications, newsletters and invitations go
   into their own groups, which you can fold away.
+- **Instant new mail.** Each account waits on its Inbox with IMAP IDLE, so new mail shows the
+  moment the server has it. Servers without IDLE are checked every minute (or as set).
 - **Unified mailboxes.** All accounts in one inbox, with per-account Sent, Drafts and Done when
   you need them.
 - **Compose, reply, reply all, forward.** Rich-text editor, recipient chips with contact

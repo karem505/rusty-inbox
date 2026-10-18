@@ -560,6 +560,18 @@ impl Store {
         let thread_id = match thread {
             Some(t) => {
                 tx.execute("UPDATE threads SET last_ms=MAX(last_ms,?2) WHERE id=?1", params![t, m.date_ms])?;
+                // new mail arriving in the inbox brings a Done or snoozed conversation back
+                // (otherwise the reply would only be visible in other mail apps)
+                let to_inbox: bool = tx
+                    .query_row("SELECT role='inbox' FROM folders WHERE id=?1", [m.folder_id], |r| {
+                        r.get::<_, Option<bool>>(0)
+                    })
+                    .optional()?
+                    .flatten()
+                    .unwrap_or(false);
+                if to_inbox {
+                    tx.execute("UPDATE threads SET done=0, snoozed_until=NULL WHERE id=?1", [t])?;
+                }
                 t
             }
             None => {
@@ -1491,6 +1503,39 @@ mod tests {
         assert_eq!(subjects("sender2@example.org"), vec!["Unrelated"]);
         assert!(subjects("o'brien@example.org").is_empty(), "quotes are escaped");
         assert!(subjects("").is_empty());
+    }
+
+    #[test]
+    fn new_inbox_mail_brings_done_and_snoozed_conversations_back() {
+        let s = Store::in_memory().unwrap();
+        acct(&s);
+        let inbox = s.upsert_folder("user@example.com", "INBOX", "Inbox", Some("/"), Some("inbox"), true).unwrap();
+        let sent = s.upsert_folder("user@example.com", "Sent", "Sent", Some("/"), Some("sent"), true).unwrap();
+        let inbox_rows = || {
+            s.thread_rows(&ListFilter::Inbox { account: None, done: false, category: None, with_done: false }, 50)
+                .unwrap()
+                .into_iter()
+                .map(|r| r.subject)
+                .collect::<Vec<_>>()
+        };
+        s.insert_message(&msg(inbox, 1, "<a@x>", None, "Plan", 1000)).unwrap();
+        s.insert_message(&msg(inbox, 2, "<b@x>", None, "Lunch", 1100)).unwrap();
+        let tid = |subj: &str| s.thread_rows(&ListFilter::Search(subj.into()), 1).unwrap()[0].thread_id;
+        let (plan, lunch) = (tid("Plan"), tid("Lunch"));
+        s.set_thread_flag(plan, "done", true).unwrap();
+        s.set_snooze(lunch, Some(i64::MAX / 2)).unwrap();
+        assert!(inbox_rows().is_empty());
+        // our own reply (filed in Sent) leaves them where they are
+        s.insert_message(&msg(sent, 1, "<c@x>", Some("<a@x>"), "Re: Plan", 2000)).unwrap();
+        assert!(inbox_rows().is_empty());
+        // a reply arriving in the inbox brings each conversation back
+        s.insert_message(&msg(inbox, 3, "<d@x>", Some("<a@x>"), "Re: Plan", 3000)).unwrap();
+        s.insert_message(&msg(inbox, 4, "<e@x>", Some("<b@x>"), "Re: Lunch", 3100)).unwrap();
+        assert_eq!(inbox_rows(), ["Lunch", "Plan"]);
+        // a message seen again (same folder and uid) changes nothing
+        s.set_thread_flag(plan, "done", true).unwrap();
+        s.insert_message(&msg(inbox, 3, "<d@x>", Some("<a@x>"), "Re: Plan", 3000)).unwrap();
+        assert_eq!(inbox_rows(), ["Lunch"]);
     }
 
     #[test]

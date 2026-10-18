@@ -92,6 +92,31 @@ impl Connection {
         timed("logout", async { Ok(self.session.logout().await?) }).await
     }
 
+    /// Whether the server pushes changes (RFC 2177 IDLE).
+    pub async fn supports_idle(&mut self) -> Result<bool> {
+        let caps = timed("capability", async { Ok(self.session.capabilities().await?) }).await?;
+        Ok(caps.has_str("IDLE"))
+    }
+
+    /// Select `path` and wait in IDLE until the server reports a change (new mail, expunge,
+    /// flags: true) or `max` passes without one (false). Gives the connection back either way;
+    /// an error means the connection is gone.
+    pub async fn wait_for_change(self, path: &str, max: Duration) -> Result<(Connection, bool)> {
+        let Connection { mut session, account, idle_since } = self;
+        timed("select", async { Ok(session.select(path).await?) }).await?;
+        let mut idle = session.idle();
+        timed("idle", async { Ok(idle.init().await?) }).await?;
+        let changed = {
+            // the stop source must live while waiting: dropping it ends the wait
+            let (wait, stop) = idle.wait_with_timeout(max);
+            let r = wait.await;
+            drop(stop);
+            matches!(r?, async_imap::extensions::idle::IdleResponse::NewData(_))
+        };
+        let session = timed("idle done", async { Ok(idle.done().await?) }).await?;
+        Ok((Connection { session, account, idle_since }, changed))
+    }
+
     /// LIST all folders and classify their roles (RFC 6154 special-use first, names second).
     pub async fn list_folders(&mut self) -> Result<Vec<RemoteFolder>> {
         let names: Vec<_> =

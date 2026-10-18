@@ -92,10 +92,13 @@ pub fn on_outbox(report: impl Fn(i64, String, Result<(), String>) + Send + Sync 
 /// Longest one account's sync pass may take before it is abandoned until the next pass.
 const SYNC_PASS_LIMIT: Duration = Duration::from_secs(10 * 60);
 
-/// Run a sync pass over every account now and then every `poll`, calling `notify` after each pass.
-/// With `RUSTY_INBOX_OFFLINE` set, only the snooze clock runs (no network).
+/// Run a sync pass over every account now and then every `poll`, calling `notify` after each
+/// account. Each account's inbox is also watched with IMAP IDLE (see `watch_accounts`), so new
+/// mail shows as soon as the server announces it. With `RUSTY_INBOX_OFFLINE` set, only the
+/// snooze clock runs (no network).
 pub fn on_synced(notify: impl Fn() + Send + Sync + 'static) {
     let offline = std::env::var_os("RUSTY_INBOX_OFFLINE").is_some();
+    let notify = std::sync::Arc::new(notify);
     runtime().spawn(async move {
         loop {
             if offline {
@@ -116,14 +119,49 @@ pub fn on_synced(notify: impl Fn() + Send + Sync + 'static) {
                         Ok(Err(e)) => tracing::error!("sync {} crashed: {e}", a.email),
                         Err(_) => tracing::warn!("sync {}: gave up after {:?}", a.email, SYNC_PASS_LIMIT),
                     }
+                    // show each account's mail as soon as it is in, not after the slowest one
+                    notify();
                 }
-                notify();
+                watch_accounts(notify.clone());
             }
             let minutes = crate::settings::get(core().store(), "syncMinutes").as_u64().unwrap_or(1).max(1);
             let poll = Duration::from_secs(if offline { 60 } else { minutes * 60 });
             let _ = tokio::time::timeout(poll, wake().notified()).await;
         }
     });
+}
+
+/// Start an IMAP IDLE watcher for every account that has none yet. A watcher ends when its
+/// account is removed or the server has no IDLE (then the regular passes cover it).
+fn watch_accounts(notify: std::sync::Arc<impl Fn() + Send + Sync + 'static>) {
+    static WATCHED: OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+    let watched = WATCHED.get_or_init(Default::default);
+    for a in core().store().accounts().unwrap_or_default() {
+        if !watched.lock().map(|mut w| w.insert(a.email.clone())).unwrap_or(false) {
+            continue;
+        }
+        let notify = notify.clone();
+        runtime().spawn(async move {
+            let r = core()
+                .watch_inbox(&a.email, |n| {
+                    if n > 0 {
+                        tracing::info!("pushed {}: {n} new", a.email);
+                    }
+                    notify();
+                })
+                .await;
+            if let Err(e) = r {
+                tracing::warn!("watch {}: {e:#}", a.email);
+            }
+            // a removed and re-added account gets a new watcher on the next pass (a server
+            // without IDLE stays marked, so it is not asked again every minute)
+            if core().store().account(&a.email).ok().flatten().is_none() {
+                if let Ok(mut w) = watched.lock() {
+                    w.remove(&a.email);
+                }
+            }
+        });
+    }
 }
 
 fn chrono_now_ms() -> i64 {

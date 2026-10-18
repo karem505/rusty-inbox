@@ -63,12 +63,19 @@ struct Inner {
     pool: Mutex<HashMap<String, Vec<imap::Connection>>>,
     /// when the next new connection to each IMAP host may start (see `NEW_CONNECTION_GAP`)
     next_connect: Mutex<HashMap<String, std::time::Instant>>,
+    /// one sync at a time per account (a full pass and a pushed inbox sync must not interleave:
+    /// one would take the other's new messages for deleted ones)
+    sync_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 /// Minimum time between new IMAP connections to one host. Hosting firewalls (cPanel's in
 /// particular) block an IP for minutes after a few logins in quick succession, so several
 /// accounts on one server are connected one after another instead of at once.
 pub const NEW_CONNECTION_GAP: std::time::Duration = std::time::Duration::from_secs(12);
+
+/// How long one IDLE lasts before it is renewed. Routers and firewalls forget quiet connections
+/// after 10 to 15 minutes, and RFC 2177 asks clients to renew within 29.
+pub const IDLE_RENEW: std::time::Duration = std::time::Duration::from_secs(9 * 60);
 
 #[derive(Clone)]
 pub struct Engine {
@@ -87,6 +94,7 @@ impl Engine {
                 on_new_mail: Mutex::new(None),
                 pool: Mutex::new(HashMap::new()),
                 next_connect: Mutex::new(HashMap::new()),
+                sync_locks: Mutex::new(HashMap::new()),
             }),
         })
     }
@@ -184,15 +192,7 @@ impl Engine {
                 return Ok(c);
             }
         }
-        let store = &self.inner.store;
-        let acct = store.account(email)?.ok_or_else(|| anyhow::anyhow!("no account {email}"))?;
-        let pw = store.secret(&format!("password:{email}"))?.ok_or_else(|| anyhow::anyhow!("no password"))?;
-        let wait = self.reserve_connect_slot(&acct.imap_host);
-        if !wait.is_zero() {
-            tracing::debug!("waiting {wait:?} before connecting to {}", acct.imap_host);
-            tokio::time::sleep(wait).await;
-        }
-        imap::Connection::connect(&acct, &pw).await
+        self.new_connection(email).await
     }
 
     /// Book the next connection slot for `host` and return how long to wait for it.
@@ -580,7 +580,13 @@ impl Engine {
 
     /// One sync pass of an account's system folders (wakes due snoozes first). Returns the number
     /// of new messages.
+    fn sync_lock(&self, email: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.inner.sync_locks.lock().entry(email.to_string()).or_default().clone()
+    }
+
     pub async fn sync_account(&self, email: &str) -> anyhow::Result<usize> {
+        let lock = self.sync_lock(email);
+        let _one_at_a_time = lock.lock().await;
         let store = &self.inner.store;
         let _ = store.wake_snoozed(Utc::now().timestamp_millis());
         let mut c = self.checkout(email).await?;
@@ -609,6 +615,117 @@ impl Engine {
         self.release(c).await;
         self.report_new_mail(email, before);
         Ok(total)
+    }
+
+    /// Sync only the inbox of `email` (what a push from the server asks for): new mail shows in
+    /// seconds instead of waiting for a full pass over every folder.
+    pub async fn sync_inbox(&self, email: &str) -> anyhow::Result<usize> {
+        let lock = self.sync_lock(email);
+        let _one_at_a_time = lock.lock().await;
+        let store = &self.inner.store;
+        let inbox = store.folder_by_role(email, "inbox")?.ok_or_else(|| anyhow::anyhow!("no inbox yet"))?;
+        let before = self.inner.high_water.lock().get(email).copied();
+        let mut c = self.checkout(email).await?;
+        let r = c.sync_folder(store, email, inbox.id, &inbox.path).await;
+        if r.is_ok() {
+            self.release(c).await;
+        }
+        let n = r?.new;
+        self.report_new_mail(email, before);
+        Ok(n)
+    }
+
+    /// Keep one connection of `email` in IMAP IDLE on its inbox and call `changed` after every
+    /// inbox sync a server push started. Runs until the account is removed, or returns at once
+    /// (Ok) when the server has no IDLE: the regular passes are all there is then. Connection
+    /// errors are retried with growing pauses (10 s up to 5 min). After every new connection the
+    /// inbox is synced once, since IDLE only reports what arrives while it waits.
+    pub async fn watch_inbox(&self, email: &str, changed: impl Fn(usize)) -> anyhow::Result<()> {
+        if !self.inner.cfg.network {
+            anyhow::bail!("offline");
+        }
+        const FIRST_PAUSE: std::time::Duration = std::time::Duration::from_secs(10);
+        let mut pause = FIRST_PAUSE;
+        let mut conn: Option<imap::Connection> = None;
+        loop {
+            if self.inner.store.account(email)?.is_none() {
+                if let Some(mut c) = conn.take() {
+                    let _ = c.logout().await;
+                }
+                return Ok(());
+            }
+            let inbox = self.inner.store.folder_by_role(email, "inbox")?;
+            let c = match (conn.take(), &inbox) {
+                (Some(c), _) => c,
+                // first pass not done yet: there is no inbox to watch
+                (None, None) => {
+                    tokio::time::sleep(pause).await;
+                    continue;
+                }
+                (None, Some(_)) => match self.new_connection(email).await {
+                    Ok(mut c) => match c.supports_idle().await {
+                        Ok(true) => {
+                            // catch up on what arrived while no IDLE was listening
+                            match self.sync_inbox(email).await {
+                                Ok(n) if n > 0 => changed(n),
+                                Ok(_) => {}
+                                Err(e) => tracing::warn!("sync inbox {email}: {e:#}"),
+                            }
+                            c
+                        }
+                        Ok(false) => {
+                            tracing::info!("{email}: the server has no IDLE, checking every few minutes instead");
+                            let _ = c.logout().await;
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            tracing::warn!("idle {email}: {e:#}");
+                            tokio::time::sleep(pause).await;
+                            pause = (pause * 2).min(std::time::Duration::from_secs(300));
+                            continue;
+                        }
+                    },
+                    Err(e) => {
+                        tracing::warn!("idle {email}: {e:#}");
+                        tokio::time::sleep(pause).await;
+                        pause = (pause * 2).min(std::time::Duration::from_secs(300));
+                        continue;
+                    }
+                },
+            };
+            let path = inbox.map(|f| f.path).unwrap_or_else(|| "INBOX".into());
+            match c.wait_for_change(&path, IDLE_RENEW).await {
+                Ok((c, has_news)) => {
+                    conn = Some(c);
+                    pause = FIRST_PAUSE;
+                    if has_news {
+                        tracing::debug!("{email}: the server reported a change in {path}");
+                        match self.sync_inbox(email).await {
+                            Ok(n) => changed(n),
+                            Err(e) => tracing::warn!("sync inbox {email}: {e:#}"),
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::info!("idle {email}: {e:#}; reconnecting");
+                    tokio::time::sleep(pause).await;
+                    pause = (pause * 2).min(std::time::Duration::from_secs(300));
+                }
+            }
+        }
+    }
+
+    /// A fresh login (not from the pool), for a long-lived connection such as IDLE.
+    async fn new_connection(&self, email: &str) -> anyhow::Result<imap::Connection> {
+        let store = &self.inner.store;
+        let acct = store.account(email)?.ok_or_else(|| anyhow::anyhow!("no account {email}"))?;
+        let pw = store.secret(&format!("password:{email}"))?.ok_or_else(|| anyhow::anyhow!("no password"))?;
+        let wait = self.reserve_connect_slot(&acct.imap_host);
+        if !wait.is_zero() {
+            tracing::debug!("waiting {wait:?} before connecting to {}", acct.imap_host);
+            tokio::time::sleep(wait).await;
+        }
+        imap::Connection::connect(&acct, &pw).await
     }
 
     fn report_new_mail(&self, email: &str, before: Option<i64>) {
