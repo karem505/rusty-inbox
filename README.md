@@ -6,6 +6,9 @@
 
 <p align="center"><a href="https://github.com/sponsors/karem505"><img src="https://img.shields.io/badge/Sponsor%20this%20project-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="Sponsor this project on GitHub Sponsors" height="40"></a></p>
 
+<p align="center"><b>Sponsorship goal: 10 monthly sponsors.</b> That funds one fixed day every month for Rusty Inbox releases, bug fixes and new features.<br>
+<a href="https://github.com/sponsors/karem505"><img src="https://img.shields.io/github/sponsors/karem505?label=sponsors%20so%20far&style=for-the-badge&color=ea4aaa&logo=githubsponsors&logoColor=white" alt="Number of GitHub sponsors"></a></p>
+
 **A fast, native email client for Linux, Windows and macOS.**
 Rust mail engine · Qt 6 / QML interface · follows your desktop theme
 
