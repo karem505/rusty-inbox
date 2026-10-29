@@ -201,15 +201,25 @@ fn chat_completions(
 /// Body of a Responses API request. Codex (ChatGPT backend) always needs `instructions` and does not
 /// accept `max_output_tokens`; OpenAI takes both as given.
 pub fn responses_body(kind: ProviderKind, req: &ChatRequest) -> Value {
+    // JSON mode needs the word "json" in the input messages (the instructions do not count):
+    // otherwise the API answers 400. Add a short line to the last user message when it is missing.
+    let needs_json_word = req.json && !req.messages.iter().any(|m| m.content.to_ascii_lowercase().contains("json"));
+    let last_user = req.messages.iter().rposition(|m| m.role == Role::User);
     let input: Vec<Value> = req
         .messages
         .iter()
-        .map(|m| {
+        .enumerate()
+        .map(|(i, m)| {
             let (role, part) = match m.role {
                 Role::User => ("user", "input_text"),
                 Role::Assistant => ("assistant", "output_text"),
             };
-            json!({"type": "message", "role": role, "content": [{"type": part, "text": m.content}]})
+            let text = if needs_json_word && Some(i) == last_user {
+                format!("{}\n\nAnswer with the JSON object only.", m.content)
+            } else {
+                m.content.clone()
+            };
+            json!({"type": "message", "role": role, "content": [{"type": part, "text": text}]})
         })
         .collect();
     let mut body = json!({"model": req.model, "input": input, "store": false, "stream": true});
@@ -676,6 +686,26 @@ mod wire_tests {
             json!({"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Hi"}]})
         );
         assert_eq!(b["input"].as_array().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn responses_json_mode_puts_the_word_json_in_the_input() {
+        // the API rejects json_object when no input message mentions JSON (instructions do not count)
+        let r = ChatRequest {
+            system: "Answer in JSON.".into(),
+            messages: vec![Message::user("Hello"), Message::assistant("Hi"), Message::user("Classify this")],
+            json: true,
+            ..Default::default()
+        };
+        let b = responses_body(ProviderKind::Codex, &r);
+        let last = b["input"][2]["content"][0]["text"].as_str().unwrap();
+        assert!(last.starts_with("Classify this") && last.to_ascii_lowercase().contains("json"), "{last}");
+        assert_eq!(b["input"][0]["content"][0]["text"], "Hello");
+        // already mentioned: nothing added; JSON mode off: nothing added
+        let r2 = ChatRequest { messages: vec![Message::user("Return json please")], ..r.clone() };
+        assert_eq!(responses_body(ProviderKind::OpenAI, &r2)["input"][0]["content"][0]["text"], "Return json please");
+        let r3 = ChatRequest { json: false, ..r };
+        assert_eq!(responses_body(ProviderKind::Codex, &r3)["input"][2]["content"][0]["text"], "Classify this");
     }
 
     #[test]
