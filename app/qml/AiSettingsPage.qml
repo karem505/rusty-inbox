@@ -124,10 +124,10 @@ ColumnLayout {
     function autotestOpenPicker(query) {
         if (!inlineHost.visible) {
             pop.close()
+            inlineHost.visible = true          // first: a hidden layout item has no width yet
             panel.parent = inlineHost
-            panel.width = inlineHost.width
-            panel.height = inlineHost.height
-            inlineHost.visible = true
+            panel.width = Qt.binding(() => inlineHost.width)
+            panel.height = Qt.binding(() => inlineHost.height)
         }
         search.text = query
         loadModels(false)
@@ -137,6 +137,9 @@ ColumnLayout {
         const m = { provider: grpProvider, model: grpModel, thinking: thinkCard, test: testCard, language: grpLanguage, writing: grpWriting, organize: grpOrganize, excluded: grpExcluded, privacy: grpPrivacy }
         host.scrollToItem(m[name], above || 0)
     }
+    // scripted check only: open the real popup with a query, then grab its panel (popups are outside the page)
+    function autotestRealPicker(q) { pop.open(); search.text = q; runSearch() }
+    function grabPanel(path, then) { panel.grabToImage(r => { r.saveToFile(path); if (then) then() }) }
     function autotestClosePicker() { inlineHost.visible = false }
     function autotestThinking(l) { act(eng.choose_thinking(l)) }
     function autotestTest() { testState = "busy"; eng.test_connection() }

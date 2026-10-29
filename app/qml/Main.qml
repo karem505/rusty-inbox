@@ -700,8 +700,8 @@ ApplicationWindow {
             case 1: win.shotB("ai-1-overview-empty"); break
             case 2: pg.autotestUse("custom", "http://127.0.0.1:18765/v1"); break
             case 3: pg.autotestScroll("model", 380); break
-            case 4: win.shotB("ai-2-custom-connected"); break
-            case 5: win.log("ai real popup opens: " + pg.autotestPopup()); pg.autotestOpenPicker("mt"); break
+            case 4: win.shotB("ai-2-custom-connected"); pg.autotestRealPicker("mt"); break
+            case 5: pg.grabPanel(win.autotestDir + "/ai-3a-real-popup.png", () => { win.log("ai real popup open"); pg.autotestOpenPicker("mt") }); break
             case 6: win.log("ai picker rows " + JSON.stringify(pg.modelRows.map(r => r.id))); win.shotB("ai-3-model-picker-search"); break
             case 7: pg.autotestOpenPicker(""); break
             case 8: pg.pickModel("mock-thinker"); break
