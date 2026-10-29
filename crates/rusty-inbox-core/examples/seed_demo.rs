@@ -122,7 +122,7 @@ fn main() {
     let mut mails: Vec<Mail> = vec![
         // ---------------- work inbox: people
         Mail { account: WORK, folder: "INBOX", from: ("Maya Chen", "maya@northwind.dev"), to: vec![me_work], subject: "Launch plan for v1.0: final review", hours_ago: 30.0, seen: true, category: "personal",
-            html: person(&["Hi Alex,", "I put the launch plan in the shared doc. The big items are the release notes, the AUR and Flatpak packages, and the demo video.", "Can you look at the timeline before Friday?"], "Maya"),
+            html: person(&["Hi Alex,", "I put the launch plan in the shared doc. Here is who does what:", "1. Release notes: Jonas, by Wednesday 4 November.<br>2. AUR and Flatpak packages tested on a clean machine: you, by Thursday 5 November.<br>3. Demo video: Priya, ready for the Friday 6 November release sync at 10:00.", "Can you look at the timeline before Friday?"], "Maya"),
             attachments: vec![("launch-plan.pdf", "application/pdf", 482_000)], id: "launch-1", reply_to_id: None },
         Mail { account: WORK, folder: "Sent", from: me_work, to: vec![("Maya Chen", "maya@northwind.dev")], subject: "Re: Launch plan for v1.0: final review", hours_ago: 26.0, seen: true, category: "personal",
             html: person(&["Looks good to me. I moved the packaging work a day earlier so we have time to test on a clean machine.", "One question: do we announce on Monday or Tuesday?"], "Alex"),
@@ -165,6 +165,12 @@ fn main() {
         Mail { account: WORK, folder: "INBOX", from: ("Code Review", "noreply@review.northwind.dev"), to: vec![me_work], subject: "3 new comments on pull request #219", hours_ago: 6.0, seen: false, category: "notifications",
             html: notice("Pull request #219", "#0ea5e9", &["Priya: Love the new check boxes.", "Jonas: Can we keep the compact density as an option?", "Diego: Approved."], "Open pull request"),
             attachments: vec![], id: "pr219", reply_to_id: None },
+        Mail { account: WORK, folder: "INBOX", from: ("Cloudhost Billing", "billing@cloudhost.example"), to: vec![me_work], subject: "Your invoice for September", hours_ago: 750.0, seen: true, category: "notifications",
+            html: notice("Invoice CH-2026-0987", "#111827", &["Amount due: $24.00", "Due date: 1 October"], "View invoice"),
+            attachments: vec![("invoice-CH-2026-0987.pdf", "application/pdf", 60_000)], id: "invoice-sep", reply_to_id: None },
+        Mail { account: WORK, folder: "INBOX", from: ("Cloudhost Support", "support@cloudh0st-billing.example"), to: vec![me_work], subject: "Action required: your account will be suspended", hours_ago: 0.6, seen: false, category: "personal",
+            html: person(&["Dear customer,", "We could not process your last payment. Your account will be SUSPENDED within 24 hours unless you confirm your billing details now.", "Verify your account: http://cloudh0st-billing.example/verify", "Failure to act will result in permanent data loss."], "Billing Department"),
+            attachments: vec![], id: "phish", reply_to_id: None },
         Mail { account: WORK, folder: "INBOX", from: ("Cloudhost Billing", "billing@cloudhost.example"), to: vec![me_work], subject: "Your invoice for October", hours_ago: 15.0, seen: true, category: "notifications",
             html: notice("Invoice CH-2026-1043", "#111827", &["Amount due: $24.00", "Due date: 1 November"], "View invoice"),
             attachments: vec![("invoice-CH-2026-1043.pdf", "application/pdf", 61_000)], id: "invoice", reply_to_id: None },
@@ -200,6 +206,8 @@ fn main() {
         // ---------------- sent, drafts, archive, folders, spam, trash
         Mail { account: WORK, folder: "Sent", from: me_work, to: vec![("Jonas Weber", "jonas@northwind.dev")], subject: "Re: Release checklist", hours_ago: 3.5, seen: true, category: "personal",
             html: person(&["Checklist updated. Packaging is on me, release notes on you."], "Alex"), attachments: vec![], id: "s1", reply_to_id: None },
+        Mail { account: WORK, folder: "Sent", from: me_work, to: vec![("Lea Martin", "lea@brightpath.example")], subject: "Support hours for Q4", hours_ago: 110.0, seen: true, category: "personal",
+            html: person(&["Hi Lea, could you confirm the support hours for Q4? I need the number before I sign the contract draft.", "Can you let me know by Friday?"], "Alex"), attachments: vec![], id: "s6", reply_to_id: None },
         Mail { account: WORK, folder: "Sent", from: me_work, to: vec![("Lea Martin", "lea@brightpath.example")], subject: "Re: Statement of work", hours_ago: 28.0, seen: true, category: "personal",
             html: person(&["Thanks Lea, signed copy attached."], "Alex"), attachments: vec![("SOW-signed.pdf", "application/pdf", 180_000)], id: "s2", reply_to_id: None },
         Mail { account: WORK, folder: "Sent", from: me_work, to: vec![("Hannah Kim", "hannah@orbitlabs.example")], subject: "Re: Conference talk", hours_ago: 52.0, seen: true, category: "personal",
