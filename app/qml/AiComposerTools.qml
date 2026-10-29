@@ -45,6 +45,13 @@ Item {
         if (!composer) return
         aiMenu.popup(menuAnchor, 0, menuAnchor.height + 4)
     }
+    // from a button in the bottom bar: the menus open upwards
+    function openMenuAbove(item) {
+        if (composer) aiMenu.popup(item, 0, -aiMenu.implicitHeight - 6)
+    }
+    function openRewriteAbove(item) {
+        if (composer) rewriteMenu.popup(item, 0, -rewriteMenu.implicitHeight - 6)
+    }
     // the item the menu pops up from (the sparkle button in the toolbar)
     property Item menuAnchor: root
 
@@ -173,6 +180,16 @@ Item {
         MenuSeparator {}
         MenuItem { text: qsTr("Write for me…"); onTriggered: root.askWrite() }
         MenuItem { text: qsTr("Suggest subject"); onTriggered: root.doSubjects() }
+    }
+    // the bottom bar's Rewrite button
+    Menu {
+        id: rewriteMenu
+        MenuItem { text: qsTr("Formal"); onTriggered: root.doRewrite("formal", qsTr("Formal")) }
+        MenuItem { text: qsTr("Friendly"); onTriggered: root.doRewrite("friendly", qsTr("Friendly")) }
+        MenuItem { text: qsTr("Shorter"); onTriggered: root.doRewrite("shorter", qsTr("Shorter")) }
+        MenuItem { text: qsTr("Longer"); onTriggered: root.doRewrite("longer", qsTr("Longer")) }
+        MenuItem { text: qsTr("Clearer"); onTriggered: root.doRewrite("clearer", qsTr("Clearer")) }
+        MenuItem { text: qsTr("More persuasive"); onTriggered: root.doRewrite("persuasive", qsTr("More persuasive")) }
     }
 
     // ---- the sheet --------------------------------------------------------------------------------

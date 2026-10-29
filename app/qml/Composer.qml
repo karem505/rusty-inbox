@@ -563,6 +563,38 @@ Rectangle {
                 tip: qsTr("Templates")
                 onClicked: { root.templates = JSON.parse(root.backend.templates_json()); tplMenu.popup(tplBtn, 0, -tplMenu.implicitHeight - 6) }
             }
+            // AI: the writing tools in plain sight (the toolbar's sparkle opens the same menu)
+            Rectangle { visible: root.aiOn; width: 1; height: 22; color: Theme.border; anchors.verticalCenter: parent.verticalCenter }
+            AiPill {
+                objectName: "aiProofreadPill"
+                visible: root.aiOn
+                anchors.verticalCenter: parent.verticalCenter
+                text: qsTr("Proofread")
+                icon: "done"
+                tip: qsTr("Fix spelling and grammar, keep your words")
+                onClicked: aiTools.doProofread()
+            }
+            AiPill {
+                id: rewritePill
+                objectName: "aiRewritePill"
+                visible: root.aiOn
+                anchors.verticalCenter: parent.verticalCenter
+                text: qsTr("Rewrite")
+                icon: "compose"
+                tip: qsTr("Formal, friendly, shorter, longer, clearer, more persuasive")
+                onClicked: aiTools.openRewriteAbove(rewritePill)
+            }
+            AiPill {
+                id: morePill
+                objectName: "aiMorePill"
+                visible: root.aiOn
+                anchors.verticalCenter: parent.verticalCenter
+                text: qsTr("AI")
+                icon: "sparkle"
+                tip: qsTr("Translate, write for me, suggest a subject (Ctrl+J)")
+                active: aiTools.active
+                onClicked: aiTools.openMenuAbove(morePill)
+            }
         }
         IconButton {
             anchors.right: parent.right

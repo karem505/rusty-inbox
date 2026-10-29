@@ -76,11 +76,34 @@ pub fn clip(s: &str, max: usize) -> String {
 
 /// A thread rendered as plain text for a prompt, oldest first, each body clipped to `per_message`
 /// characters and the whole to `total` (newest messages are kept when it is too long).
+/// Appended to the user's own addresses in From / To / Cc lines given to the model.
+pub const USER_MARK: &str = " [THE USER]";
+
+/// Mark the user's own addresses in a To / Cc line ("Name <a@x>, b@y") with [`USER_MARK`].
+pub fn mark_user(list: &str, mine: &[String]) -> String {
+    if list.trim().is_empty() {
+        return String::new();
+    }
+    list.split(", ")
+        .map(|entry| {
+            let addr = entry.rsplit_once('<').map(|(_, a)| a.trim_end_matches('>')).unwrap_or(entry).trim();
+            if mine.iter().any(|m| m.trim().eq_ignore_ascii_case(addr)) && !entry.ends_with(USER_MARK) {
+                format!("{entry}{USER_MARK}")
+            } else {
+                entry.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 pub fn render_thread(msgs: &[MailForAi], per_message: usize, total: usize) -> String {
     let mut parts: Vec<String> = msgs
         .iter()
         .map(|m| {
-            let mut s = format!("From: {}\nTo: {}\n", m.from, m.to);
+            // the user's own messages are marked: without it the model cannot tell who "you" is
+            let mark = if m.from_me { USER_MARK } else { "" };
+            let mut s = format!("From: {}{mark}\nTo: {}\n", m.from, m.to);
             if !m.cc.is_empty() {
                 s += &format!("Cc: {}\n", m.cc);
             }
@@ -182,6 +205,17 @@ pub fn clean_text(answer: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_users_addresses_are_marked_in_address_lines() {
+        let mine = vec!["karem@a.ai".to_string(), "finance@a.ai".to_string()];
+        assert_eq!(
+            mark_user("Hamza <h@b.com>, Karem <KAREM@a.ai>, finance@a.ai", &mine),
+            "Hamza <h@b.com>, Karem <KAREM@a.ai> [THE USER], finance@a.ai [THE USER]"
+        );
+        assert_eq!(mark_user("", &mine), "");
+        assert_eq!(mark_user("x@y.z", &[]), "x@y.z");
+    }
+
     use super::*;
     use serde_json::json;
 

@@ -21,13 +21,25 @@ fn request(system: String, user: String, json: bool, max_tokens: Option<u32>) ->
     ChatRequest { system, messages: vec![Message::user(user)], json, max_tokens, ..Default::default() }
 }
 
+/// Who the user is. `me` lists all the user's addresses ("Name <a@x>, b@y"): one person can own several
+/// accounts (personal, work, a shared team mailbox), and mail between them is still the user's own mail.
 fn me_line(me: &str) -> String {
     let me = me.trim();
-    if me.is_empty() {
-        "The user is the recipient of this conversation.".to_string()
+    let who = if me.is_empty() {
+        "The user (the person you work for) owns the addresses marked [THE USER].".to_string()
     } else {
-        format!("The user (the person you work for) is {me}; messages marked as from them are theirs.")
-    }
+        format!(
+            "The user (the person you work for) owns all of these addresses: {me}. Every address marked [THE USER] \
+             in From / To / Cc is the user."
+        )
+    };
+    format!(
+        "{who} Before writing, work out the user's role in the newest message: its SENDER (From is the user), a direct \
+         recipient (the user is in To), or only copied (the user is in Cc only). A message sent from one of the user's \
+         addresses was written by the user (or the user's team), even when another of the user's addresses is in Cc; \
+         the people it asks or tells something are the others, not the user. Never treat the user as the person a \
+         message from the user is addressed to."
+    )
 }
 
 /// Feature 6 + 7: Summary card of a conversation.
@@ -52,7 +64,8 @@ pub struct ActionItem {
 pub fn summarize_thread(thread: &[MailForAi], me: &str, lang: &Lang) -> ChatRequest {
     let system = format!(
         "TASK=summarize-thread\nYou summarize email conversations. {} Give a summary of at most 3 short sentences, \
-         then the action items: concrete tasks someone must do, with the owner (\"you\" when it is the user, \
+         written from the user's point of view (\"you\" = the user; say \"you asked …\" / \"you sent …\" when the user wrote it), \
+         then the action items: concrete tasks someone must do, with the owner (\"you\" only when the user must do it, \
          otherwise the person's name; empty when unclear) and the due date exactly as written in the email, or as \
          YYYY-MM-DD when the email gives a clear date (empty when there is none; never guess a date). Use only what \
          the conversation says; do not invent tasks, people or dates. At most 8 action items; an empty list when \
@@ -122,8 +135,11 @@ pub fn smart_replies(thread: &[MailForAi], me: &str, lang: &Lang) -> ChatRequest
         "TASK=smart-replies\nYou suggest quick replies to the newest message of an email conversation. {} Write exactly \
          3 different replies the user could send, each under 30 words, written in the user's voice (first person), \
          with different intents (for example agree, ask or decline, defer). No greeting line, no signature, no \
-         subject. Do not invent facts, dates or commitments the conversation does not contain. If the newest message \
-         is from the user, suggest follow-ups. Answer with JSON only: {{\"replies\": [\"...\", \"...\", \"...\"]}}\n{}\n{GUARD}",
+         subject. Do not invent facts, dates or commitments the conversation does not contain. If the user SENT the \
+         newest message, the replies are the user's follow-ups to its recipients (a reminder, an added detail, a \
+         thank-you), never answers to it: for example after the user asks for payment, do not reply as the one who \
+         must pay. If the user is only in Cc, write what the user would add to the others. Answer with JSON only: \
+         {{\"replies\": [\"...\", \"...\", \"...\"]}}\n{}\n{GUARD}",
         me_line(me),
         lang.instruction()
     );
@@ -400,6 +416,33 @@ pub fn apply_floor(mut v: PhishingVerdict, findings: &[Finding]) -> PhishingVerd
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_user_and_their_role_are_spelled_out() {
+        let me = "Karem <karem@a.ai>, finance@a.ai";
+        let mail = MailForAi {
+            id: 1,
+            from: "finance@a.ai".into(),
+            from_me: true,
+            to: "Hamza <h@b.com>".into(),
+            cc: format!("karem@a.ai{}", crate::features::USER_MARK),
+            subject: "Invoices".into(),
+            body: "Please pay the two invoices.".into(),
+            ..Default::default()
+        };
+        for r in [
+            smart_replies(std::slice::from_ref(&mail), me, &Lang::Auto),
+            summarize_thread(std::slice::from_ref(&mail), me, &Lang::Auto),
+        ] {
+            assert!(r.system.contains("owns all of these addresses: Karem <karem@a.ai>, finance@a.ai"));
+            assert!(r.system.contains("SENDER") && r.system.contains("only copied"));
+            let user = &r.messages[0].content;
+            assert!(user.contains("From: finance@a.ai [THE USER]"), "{user}");
+            assert!(user.contains("Cc: karem@a.ai [THE USER]"), "{user}");
+            assert!(!user.contains("Hamza <h@b.com> [THE USER]"));
+        }
+        assert!(smart_replies(&[mail], me, &Lang::Auto).system.contains("never answers to it"));
+    }
+
     use super::*;
 
     fn mail(id: i64, from: &str, body: &str) -> MailForAi {
@@ -432,7 +475,7 @@ mod tests {
         let t: Vec<MailForAi> = (0..40).map(|i| mail(i, &format!("p{i}"), &"z".repeat(9000))).collect();
         let r = summarize_thread(&t, "", &Lang::Auto);
         assert!(r.messages[0].content.chars().count() < THREAD_TOTAL + 9000);
-        assert!(r.system.contains("recipient of this conversation"));
+        assert!(r.system.contains("addresses marked [THE USER]") && r.system.contains("only copied"));
     }
 
     #[test]

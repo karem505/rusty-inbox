@@ -288,12 +288,32 @@ fn body_for_ai(m: &MessageRow) -> String {
     ai_support::strip_quoted(&text)
 }
 
+/// A To / Cc list for the model with the user's own addresses marked.
+fn mark_mine(v: &Value, mine: &[String]) -> String {
+    let addrs: Vec<&str> = v
+        .as_array()
+        .map(|a| a.iter().filter_map(|x| x["mailbox"].as_str().or(x["address"].as_str())).collect())
+        .unwrap_or_default();
+    mailbox_list(v)
+        .into_iter()
+        .zip(addrs.iter().map(|a| a.trim()).filter(|a| !a.is_empty()))
+        .map(|(shown, addr)| {
+            if mine.iter().any(|m| m.eq_ignore_ascii_case(addr)) {
+                format!("{shown}{}", rusty_inbox_ai::features::USER_MARK)
+            } else {
+                shown
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn mail_of(m: &MessageRow, mine: &[String]) -> MailForAi {
     MailForAi {
         id: m.id,
         from: who(&m.from_name, &m.from_addr),
-        to: mailbox_list(&m.to).join(", "),
-        cc: mailbox_list(&m.cc).join(", "),
+        to: mark_mine(&m.to, mine),
+        cc: mark_mine(&m.cc, mine),
         date: date_text(m.date_ms),
         subject: m.subject.clone(),
         body: body_for_ai(m),
@@ -314,15 +334,17 @@ impl Loaded {
     fn newest_id(&self) -> i64 {
         self.rows.last().map(|r| r.id).unwrap_or(0)
     }
-    /// "Name <address>" of the account the conversation belongs to.
+    /// All the user's addresses ("Name <address>, ..."), the conversation's own account first: a
+    /// message from any of them is the user's.
     fn me(&self) -> String {
-        engine::core()
-            .store()
-            .account(&self.account)
-            .ok()
-            .flatten()
-            .map(|a| who(&Some(a.name), &a.email))
-            .unwrap_or_else(|| self.account.clone())
+        let mut accounts = engine::core().store().accounts().unwrap_or_default();
+        accounts.sort_by_key(|a| !a.email.eq_ignore_ascii_case(&self.account));
+        let list: Vec<String> = accounts.iter().map(|a| who(&Some(a.name.clone()), &a.email)).collect();
+        if list.is_empty() {
+            self.account.clone()
+        } else {
+            list.join(", ")
+        }
     }
 }
 
@@ -683,6 +705,15 @@ mod tests {
     }
 
     #[test]
+    fn the_users_addresses_are_marked() {
+        let v =
+            json!([{"name": "Hamza", "mailbox": "h@b.com"}, {"name": null, "mailbox": "Karem@A.ai"}, {"mailbox": ""}]);
+        let mine = vec!["karem@a.ai".to_string()];
+        assert_eq!(mark_mine(&v, &mine), "Hamza <h@b.com>, Karem@A.ai [THE USER]");
+        assert_eq!(mark_mine(&v, &[]), "Hamza <h@b.com>, Karem@A.ai");
+    }
+
+    #[test]
     fn mailbox_lists() {
         let v = json!([{"name": "Dana", "mailbox": "d@x.org"}, {"name": null, "mailbox": "e@x.org"}, {"mailbox": ""}]);
         assert_eq!(mailbox_list(&v), vec!["Dana <d@x.org>", "e@x.org"]);
@@ -708,7 +739,7 @@ mod tests {
             ..Default::default()
         };
         let m = mail_of(&row, &["me@x.org".to_string()]);
-        assert_eq!((m.id, m.from.as_str(), m.to.as_str()), (7, "Dana <d@x.org>", "me@x.org"));
+        assert_eq!((m.id, m.from.as_str(), m.to.as_str()), (7, "Dana <d@x.org>", "me@x.org [THE USER]"));
         assert_eq!(m.body, "Friday works.");
         assert_eq!(m.attachments, vec!["a.pdf"]);
         assert!(!m.from_me);

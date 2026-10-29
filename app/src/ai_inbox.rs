@@ -483,6 +483,11 @@ fn failed(what: &str, e: &str) {
     }
 }
 
+/// Every address the user has an account for (excluded ones too: they are still the user's).
+fn own_addresses() -> Vec<String> {
+    crate::engine::core().store().accounts().unwrap_or_default().into_iter().map(|a| a.email).collect()
+}
+
 fn for_ai(m: &AiMessage, from_me: bool) -> MailForAi {
     let from = match m.from_name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
         Some(n) => format!("{n} <{}>", m.from_addr),
@@ -494,8 +499,8 @@ fn for_ai(m: &AiMessage, from_me: bool) -> MailForAi {
     MailForAi {
         id: m.id,
         from,
-        to: m.to.clone(),
-        cc: m.cc.clone(),
+        to: rusty_inbox_ai::features::mark_user(&m.to, &own_addresses()),
+        cc: rusty_inbox_ai::features::mark_user(&m.cc, &own_addresses()),
         date,
         subject: m.subject.clone(),
         body: m.body.clone(),

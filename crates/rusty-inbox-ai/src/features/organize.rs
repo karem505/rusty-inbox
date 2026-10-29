@@ -70,13 +70,14 @@ pub fn classify(batch: &[MailForAi], me: &str) -> ChatRequest {
 pub fn classify_in(batch: &[MailForAi], me: &str, lang: &Lang) -> ChatRequest {
     let batch = &batch[..batch.len().min(MAX_BATCH)];
     let system = format!(
-        "You sort incoming email for the owner of a mailbox ({me}). For each message decide:\n\
+        "You sort incoming email for the owner of a mailbox ({me}). The owner's addresses are marked [THE USER] in \
+         To / Cc; one person can own several addresses. For each message decide:\n\
          - category: \"personal\" (written by a real person to the owner), \"notifications\" (automated: receipts, \
          alerts, build results, security notices, shipping, bank), \"newsletters\" (bulk or marketing mail, digests, \
          promotions), or \"invitations\" (calendar invites and event requests).\n\
          - needs_reply: true only when a real person asks the owner a question or for an action or decision, so an \
          answer from the owner is expected. Always false for automated mail and newsletters, and when the owner is \
-         only informed.\n\
+         only informed; usually false when the owner is only in Cc and the request is for the people in To.\n\
          - priority: 2 = time-sensitive or important, 1 = normal, 0 = low.\n\
          - reason: at most 12 words explaining the decision.\n\
          {DATA_RULE}\n\

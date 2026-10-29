@@ -912,7 +912,7 @@ ApplicationWindow {
             try { ok = s.ready() } catch (e) { console.warn("AUTOTEST ai step", win.aiN, "ready failed:", e) }
             if (!ok && ++win.aiTicks <= 40) return
             if (ok && !win.aiSettled) { win.aiSettled = true; return }     // let the animations finish
-            console.warn("AUTOTEST ai step", win.aiN, s.shot || "-", ok ? "ok" : "TIMEOUT")
+            console.warn("AUTOTEST ai step", win.aiN, s.shot || "-", ok ? "ok" : "TIMEOUT " + (aiR() ? JSON.stringify(aiR().assistantPanel.st) : "").slice(0, 600))
             const next = () => { win.aiN++; win.aiActed = false; win.aiSettled = false; win.aiBusy = false }
             if (s.shot) { win.aiBusy = true; win.shot(s.shot, next) } else next()
         }
