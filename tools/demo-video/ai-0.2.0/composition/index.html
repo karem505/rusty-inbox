@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1920, height=1080" />
+<title>Rusty Inbox 0.2.0: the AI release</title>
+<script src="assets/gsap.min.js"></script>
+<style>
+@font-face{font-family:"Thmanyah Sans";src:url(assets/fonts/thmanyahsans-Regular.otf);font-weight:400}
+@font-face{font-family:"Thmanyah Sans";src:url(assets/fonts/thmanyahsans-Medium.otf);font-weight:500}
+@font-face{font-family:"Thmanyah Sans";src:url(assets/fonts/thmanyahsans-Bold.otf);font-weight:700}
+@font-face{font-family:"Thmanyah Sans";src:url(assets/fonts/thmanyahsans-Black.otf);font-weight:900}
+@font-face{font-family:"Plex Mono";src:url(assets/fonts/IBMPlexMono-Regular.ttf);font-weight:400}
+@font-face{font-family:"Plex Mono";src:url(assets/fonts/IBMPlexMono-Medium.ttf);font-weight:500}
+html,body{margin:0;width:1920px;height:1080px;overflow:hidden;background:#0E0D0C}
+#root{position:relative;width:1920px;height:1080px;overflow:hidden;background:#0E0D0C;font-family:"Thmanyah Sans",sans-serif;color:#F6EEE6}
+.scene{position:absolute;inset:0;background:#0E0D0C;overflow:hidden}
+.glow{position:absolute;border-radius:50%;filter:blur(150px);pointer-events:none}
+.grid{position:absolute;inset:0;opacity:.06;background-image:linear-gradient(rgba(246,238,230,.6) 1px,transparent 1px),linear-gradient(90deg,rgba(246,238,230,.6) 1px,transparent 1px);background-size:96px 96px}
+.copy{position:absolute;top:150px;width:780px;display:flex;flex-direction:column;gap:22px;box-sizing:border-box}
+.copy.L{left:96px}.copy.R{right:96px}
+.kicker{font-size:26px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:#E8743B}
+.title{font-size:88px;font-weight:900;line-height:1.04;margin:0;letter-spacing:-1px}
+.body{font-size:30px;line-height:1.45;color:#C9BEB3;margin:0;max-width:700px}
+.chips{display:flex;flex-wrap:wrap;gap:14px;margin-top:14px;max-width:760px}
+.chip{padding:12px 24px;border-radius:30px;font-size:27px;font-weight:700;border:1.5px solid rgba(232,116,59,.55);background:#191715;color:#F6EEE6;white-space:nowrap}
+.chip.hot{background:#E8743B;border-color:#E8743B;color:#14100D}
+.chip.ok{border-color:rgba(246,238,230,.22);color:#C9BEB3}
+.vw{position:absolute;top:140px;width:908px;height:800px;border-radius:20px;overflow:hidden;background:#191715;
+  box-shadow:0 70px 130px -30px rgba(0,0,0,.9),0 0 0 1px rgba(246,238,230,.13)}
+.vw.R{right:90px}.vw.L{left:90px}
+.vw video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.foot{position:absolute;left:96px;bottom:44px;font-size:21px;color:#8F857B;letter-spacing:.3px}
+.foot.R{left:auto;right:96px}
+.center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.icon{width:210px;height:210px;filter:drop-shadow(0 30px 60px rgba(183,65,14,.55))}
+.brand{font-size:140px;font-weight:900;line-height:1.1;margin:18px 0 0;letter-spacing:-2px}
+.tag{font-size:40px;color:#C9BEB3;margin:10px 0 0}
+.cmd{margin-top:38px;padding:22px 34px;border-radius:16px;background:#191715;border:1.5px solid rgba(246,238,230,.16);font-family:"Plex Mono",monospace;font-size:29px;font-weight:500;color:#F6EEE6;white-space:nowrap}
+.cmd b{color:#E8743B;font-weight:500}
+.links{display:flex;gap:22px;margin-top:30px;align-items:center}
+.link{font-size:34px;font-weight:700}
+.sponsor{padding:14px 30px;border-radius:34px;font-size:29px;font-weight:700;background:#E8743B;color:#14100D}
+.cover-l{position:absolute;left:96px;top:0;bottom:0;width:900px;display:flex;flex-direction:column;justify-content:center}
+.brandrow{display:flex;align-items:center;gap:26px}
+.brandrow img{width:112px;height:112px;filter:drop-shadow(0 18px 36px rgba(183,65,14,.5))}
+.brandrow .n{font-size:76px;font-weight:900;letter-spacing:-1px}
+.ver{padding:8px 22px;border-radius:40px;background:#E8743B;color:#14100D;font-size:44px;font-weight:900}
+.hook{font-size:128px;font-weight:900;line-height:1.03;margin:40px 0 0;letter-spacing:-3px}
+.hook span{display:block}
+.hook .a{color:#F6EEE6}.hook .b{color:#F6EEE6}.hook .c{color:#E8743B}
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="100.08" data-width="1920" data-height="1080">
+<div id="s1" class="scene" data-start="0" data-duration="8.30" data-track-index="1" style="z-index:20">
+  <div class="glow" data-layout-ignore style="left:900px;top:60px;width:1000px;height:1000px;background:#B7410E;opacity:0.38"></div><div class="grid" data-layout-ignore></div>
+  <div class="cover-l">
+    <div class="brandrow"><img id="s1-icon" src="assets/img/icon.png" alt=""><span class="n">Rusty Inbox</span><span class="ver" id="s1-ver">0.2.0</span></div>
+    <h1 class="hook"><span class="a" id="s1-a">Your AI.</span><span class="b" id="s1-b">Your model.</span><span class="c" id="s1-c">Your mail.</span></h1>
+  </div>
+</div>
+<div class="vw R" id="s1-w" style="z-index:25;top:120px;width:908px;height:800px;right:70px">
+  <video id="s1-v" src="assets/clips/s1.mp4" data-start="0" data-duration="8.40" data-track-index="3" muted playsinline></video>
+</div>
+<div id="s2" class="scene" data-start="7.80" data-duration="18.34" data-track-index="1" style="z-index:30">
+  <div class="glow" data-layout-ignore style="left:1000px;top:120px;width:900px;height:900px;background:#B7410E;opacity:0.32"></div><div class="grid" data-layout-ignore></div>
+  <div class="copy L">
+    <div class="kicker" id="s2-k">01 · Choose your AI</div>
+    <h2 class="title" id="s2-t">Bring your own model.</h2>
+    <p class="body" id="s2-b">Sign in with ChatGPT, or use your own key. The model list is fetched live from the provider.</p>
+    <div class="chips"><span class="chip hot" id="s2-c0">ChatGPT subscription</span><span class="chip ok" id="s2-c1">OpenAI</span><span class="chip ok" id="s2-c2">Anthropic</span><span class="chip ok" id="s2-c3">OpenRouter</span><span class="chip ok" id="s2-c4">Ollama</span><span class="chip ok" id="s2-c5">Any compatible server</span><span class="chip hot" id="s2-c6">Live model list + search</span><span class="chip hot" id="s2-c7">Thinking level</span></div>
+  </div>
+  <div class="foot">Real recording on a fictional demo mailbox</div>
+</div>
+<div class="vw R" id="s2-w" style="z-index:35">
+  <video id="s2-v" src="assets/clips/s2.mp4" data-start="7.80" data-duration="18.44" data-track-index="3" muted playsinline></video>
+</div>
+<div id="s3" class="scene" data-start="25.64" data-duration="16.76" data-track-index="2" style="z-index:40">
+  <div class="glow" data-layout-ignore style="left:-250px;top:120px;width:900px;height:900px;background:#B7410E;opacity:0.32"></div><div class="grid" data-layout-ignore></div>
+  <div class="copy R">
+    <div class="kicker" id="s3-k">02 · Write</div>
+    <h2 class="title" id="s3-t">Write with a safety net.</h2>
+    <p class="body" id="s3-b">Proofread, rewrite, or write from one line. Nothing changes until you click Replace.</p>
+    <div class="chips"><span class="chip hot" id="s3-c0">Proofread</span><span class="chip hot" id="s3-c1">Rewrite</span><span class="chip hot" id="s3-c2">Write for me</span><span class="chip hot" id="s3-c3">You click Replace</span><span class="chip ok" id="s3-c4">Signature and quote untouched</span></div>
+  </div>
+  <div class="foot R">Real recording on a fictional demo mailbox</div>
+</div>
+<div class="vw L" id="s3-w" style="z-index:45">
+  <video id="s3-v" src="assets/clips/s3.mp4" data-start="25.64" data-duration="16.86" data-track-index="4" muted playsinline></video>
+</div>
+<div id="s4" class="scene" data-start="41.90" data-duration="14.44" data-track-index="1" style="z-index:50">
+  <div class="glow" data-layout-ignore style="left:1000px;top:120px;width:900px;height:900px;background:#B7410E;opacity:0.32"></div><div class="grid" data-layout-ignore></div>
+  <div class="copy L">
+    <div class="kicker" id="s4-k">03 · Read</div>
+    <h2 class="title" id="s4-t">Understand it in one click.</h2>
+    <p class="body" id="s4-b">Summaries with action items and due dates, suggested replies, translation, and attachments.</p>
+    <div class="chips"><span class="chip hot" id="s4-c0">Summary + action items</span><span class="chip hot" id="s4-c1">3 suggested replies</span><span class="chip hot" id="s4-c2">Translate in place</span><span class="chip hot" id="s4-c3">Attachment summary</span></div>
+  </div>
+  <div class="foot">Real recording on a fictional demo mailbox</div>
+</div>
+<div class="vw R" id="s4-w" style="z-index:55">
+  <video id="s4-v" src="assets/clips/s4.mp4" data-start="41.90" data-duration="14.54" data-track-index="3" muted playsinline></video>
+</div>
+<div id="s5" class="scene" data-start="55.84" data-duration="4.97" data-track-index="2" style="z-index:60">
+  <div class="glow" data-layout-ignore style="left:-250px;top:120px;width:900px;height:900px;background:#B7410E;opacity:0.32"></div><div class="grid" data-layout-ignore></div>
+  <div class="copy R">
+    <div class="kicker" id="s5-k">04 · Stay safe</div>
+    <h2 class="title" id="s5-t">Spot phishing first.</h2>
+    <p class="body" id="s5-b">One click gives a risk level and the reasons, right above the message.</p>
+    <div class="chips"><span class="chip hot" id="s5-c0">Risk level</span><span class="chip hot" id="s5-c1">The reasons</span></div>
+  </div>
+  <div class="foot R">Real recording on a fictional demo mailbox</div>
+</div>
+<div class="vw L" id="s5-w" style="z-index:65">
+  <video id="s5-v" src="assets/clips/s5.mp4" data-start="55.84" data-duration="5.07" data-track-index="4" muted playsinline></video>
+</div>
+<div id="s6" class="scene" data-start="60.31" data-duration="13.99" data-track-index="1" style="z-index:70">
+  <div class="glow" data-layout-ignore style="left:1000px;top:120px;width:900px;height:900px;background:#B7410E;opacity:0.32"></div><div class="grid" data-layout-ignore></div>
+  <div class="copy L">
+    <div class="kicker" id="s6-k">05 · Stay on top</div>
+    <h2 class="title" id="s6-t">Never lose a thread.</h2>
+    <p class="body" id="s6-b">Mail that needs an answer, mail nobody answered, plain-words search and a daily briefing.</p>
+    <div class="chips"><span class="chip hot" id="s6-c0">Needs reply</span><span class="chip hot" id="s6-c1">Follow up</span><span class="chip hot" id="s6-c2">Ask in plain words</span><span class="chip hot" id="s6-c3">Daily briefing</span></div>
+  </div>
+  <div class="foot">Real recording on a fictional demo mailbox</div>
+</div>
+<div class="vw R" id="s6-w" style="z-index:75">
+  <video id="s6-v" src="assets/clips/s6.mp4" data-start="60.31" data-duration="14.09" data-track-index="3" muted playsinline></video>
+</div>
+<div id="s7" class="scene" data-start="73.80" data-duration="12.97" data-track-index="2" style="z-index:80">
+  <div class="glow" data-layout-ignore style="left:-250px;top:120px;width:900px;height:900px;background:#B7410E;opacity:0.32"></div><div class="grid" data-layout-ignore></div>
+  <div class="copy R">
+    <div class="kicker" id="s7-k">06 · Private by design</div>
+    <h2 class="title" id="s7-t">Off until you turn it on.</h2>
+    <p class="body" id="s7-b">Only the mail you act on goes to the provider you chose. With Ollama, nothing leaves your machine.</p>
+    <div class="chips"><span class="chip hot" id="s7-c0">Off by default</span><span class="chip hot" id="s7-c1">Only what you click</span><span class="chip hot" id="s7-c2">Exclude accounts</span><span class="chip hot" id="s7-c3">Ollama: all local</span></div>
+  </div>
+  <div class="foot R">Real recording on a fictional demo mailbox</div>
+</div>
+<div class="vw L" id="s7-w" style="z-index:85">
+  <video id="s7-v" src="assets/clips/s7.mp4" data-start="73.80" data-duration="13.07" data-track-index="4" muted playsinline></video>
+</div>
+<div id="s8" class="scene" data-start="86.27" data-duration="13.81" data-track-index="1" style="z-index:90">
+  <div class="glow" data-layout-ignore style="left:560px;top:100px;width:800px;height:800px;background:#B7410E;opacity:0.5"></div><div class="grid" data-layout-ignore></div>
+  <div class="center">
+    <img id="s8-icon" class="icon" src="assets/img/icon.png" alt="">
+    <h1 id="s8-brand" class="brand">Rusty Inbox 0.2.0</h1>
+    <p id="s8-tag" class="tag">Free and open source · Linux · Windows · macOS</p>
+    <div id="s8-cmd" class="cmd"><b>$</b> flatpak install --user https://karem505.github.io/rusty-inbox/rusty-inbox.flatpakref</div>
+    <div class="links" id="s8-links"><span class="link">github.com/karem505/rusty-inbox</span><span class="sponsor" id="s8-sp">Sponsor on GitHub</span></div>
+  </div>
+</div>
+<audio id="mix" src="assets/audio/mix.wav" data-start="0" data-duration="100.08" data-track-index="5" data-volume="1"></audio>
+</div>
+<script>
+window.__timelines = window.__timelines || {};
+const tl = gsap.timeline({ paused: true });
+gsap.set("#s1-w",{transformPerspective:2400,rotationY:-7,rotationX:2,x:0});
+tl.to("#s1-w",{rotationY:-2,duration:7.30,ease:"sine.inOut"},.5);
+tl.to("#s1-ver",{scale:1.12,duration:.35,ease:"power2.out"},.55);
+tl.to("#s1-ver",{scale:1,duration:.5,ease:"power2.inOut"},.9);
+gsap.set("#s1-a,#s1-b",{opacity:1});
+tl.to("#s1-a",{color:"#E8743B",duration:.25,ease:"power1.out"},4.09);
+tl.to("#s1-a",{color:"#F6EEE6",duration:.5,ease:"power1.inOut"},4.79);
+tl.to("#s1-b",{color:"#E8743B",duration:.25,ease:"power1.out"},5.73);
+tl.to("#s1-b",{color:"#F6EEE6",duration:.5,ease:"power1.inOut"},6.43);
+tl.fromTo("#s1-c",{scale:1},{scale:1.05,transformOrigin:"left center",duration:.3,ease:"power2.out"},6.91);
+tl.to("#s1-c",{scale:1,duration:.5,ease:"power2.inOut"},7.31);
+gsap.set("#s2-w",{opacity:0,transformPerspective:2400,rotationY:5,rotationX:2});
+gsap.set(".chip[id^=s2-c]",{opacity:0,y:16,scale:.92});
+tl.from("#s2",{opacity:0,duration:.4,ease:"power2.out"},7.80);
+tl.to("#s2-w",{opacity:1,duration:.45,ease:"power1.out"},7.90);
+tl.from("#s2-w",{x:120,scale:.92,duration:1.0,ease:"expo.out"},7.90);
+tl.to("#s2-w",{rotationY:1.67,duration:17.14,ease:"sine.inOut"},8.80);
+tl.from("#s2-k",{y:20,opacity:0,duration:.45,ease:"power2.out"},7.95);
+tl.from("#s2-t",{y:56,opacity:0,duration:.75,ease:"power4.out"},8.05);
+tl.from("#s2-b",{y:24,opacity:0,duration:.6,ease:"sine.out"},8.30);
+tl.to("#s2-c0",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},9.36);
+tl.to("#s2-c1",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},13.63);tl.to("#s2-c1",{backgroundColor:"#E8743B",color:"#14100D",duration:.12,ease:"power1.out"},13.88);tl.to("#s2-c1",{backgroundColor:"#191715",color:"#F6EEE6",duration:.5,ease:"power1.inOut"},14.38);
+tl.to("#s2-c2",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},14.77);tl.to("#s2-c2",{backgroundColor:"#E8743B",color:"#14100D",duration:.12,ease:"power1.out"},15.02);tl.to("#s2-c2",{backgroundColor:"#191715",color:"#F6EEE6",duration:.5,ease:"power1.inOut"},15.52);
+tl.to("#s2-c3",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},15.61);tl.to("#s2-c3",{backgroundColor:"#E8743B",color:"#14100D",duration:.12,ease:"power1.out"},15.86);tl.to("#s2-c3",{backgroundColor:"#191715",color:"#F6EEE6",duration:.5,ease:"power1.inOut"},16.36);
+tl.to("#s2-c4",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},16.71);tl.to("#s2-c4",{backgroundColor:"#E8743B",color:"#14100D",duration:.12,ease:"power1.out"},16.96);tl.to("#s2-c4",{backgroundColor:"#191715",color:"#F6EEE6",duration:.5,ease:"power1.inOut"},17.46);
+tl.to("#s2-c5",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},17.89);tl.to("#s2-c5",{backgroundColor:"#E8743B",color:"#14100D",duration:.12,ease:"power1.out"},18.14);tl.to("#s2-c5",{backgroundColor:"#191715",color:"#F6EEE6",duration:.5,ease:"power1.inOut"},18.64);
+tl.to("#s2-c6",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},19.77);
+tl.to("#s2-c7",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},24.81);
+gsap.set("#s3-w",{opacity:0,transformPerspective:2400,rotationY:-5,rotationX:2});
+gsap.set(".chip[id^=s3-c]",{opacity:0,y:16,scale:.92});
+tl.from("#s3",{opacity:0,duration:.4,ease:"power2.out"},25.64);
+tl.to("#s3-w",{opacity:1,duration:.45,ease:"power1.out"},25.74);
+tl.from("#s3-w",{x:-120,scale:.92,duration:1.0,ease:"expo.out"},25.74);
+tl.to("#s3-w",{rotationY:-1.67,duration:15.56,ease:"sine.inOut"},26.64);
+tl.from("#s3-k",{y:20,opacity:0,duration:.45,ease:"power2.out"},25.79);
+tl.from("#s3-t",{y:56,opacity:0,duration:.75,ease:"power4.out"},25.89);
+tl.from("#s3-b",{y:24,opacity:0,duration:.6,ease:"sine.out"},26.14);
+tl.to("#s3-c0",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},26.44);
+tl.to("#s3-c1",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},29.37);
+tl.to("#s3-c2",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},32.38);
+tl.to("#s3-c3",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},37.12);
+tl.to("#s3-c4",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},38.60);tl.to("#s3-c4",{backgroundColor:"#E8743B",color:"#14100D",duration:.12,ease:"power1.out"},38.85);tl.to("#s3-c4",{backgroundColor:"#191715",color:"#F6EEE6",duration:.5,ease:"power1.inOut"},39.35);
+gsap.set("#s4-w",{opacity:0,transformPerspective:2400,rotationY:5,rotationX:2});
+gsap.set(".chip[id^=s4-c]",{opacity:0,y:16,scale:.92});
+tl.from("#s4",{opacity:0,duration:.4,ease:"power2.out"},41.90);
+tl.to("#s4-w",{opacity:1,duration:.45,ease:"power1.out"},42.00);
+tl.from("#s4-w",{x:120,scale:.92,duration:1.0,ease:"expo.out"},42.00);
+tl.to("#s4-w",{rotationY:1.67,duration:13.24,ease:"sine.inOut"},42.90);
+tl.from("#s4-k",{y:20,opacity:0,duration:.45,ease:"power2.out"},42.05);
+tl.from("#s4-t",{y:56,opacity:0,duration:.75,ease:"power4.out"},42.15);
+tl.from("#s4-b",{y:24,opacity:0,duration:.6,ease:"sine.out"},42.40);
+tl.to("#s4-c0",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},43.04);
+tl.to("#s4-c1",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},48.17);
+tl.to("#s4-c2",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},51.88);
+tl.to("#s4-c3",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},54.86);
+gsap.set("#s5-w",{opacity:0,transformPerspective:2400,rotationY:-5,rotationX:2});
+gsap.set(".chip[id^=s5-c]",{opacity:0,y:16,scale:.92});
+tl.from("#s5",{opacity:0,duration:.4,ease:"power2.out"},55.84);
+tl.to("#s5-w",{opacity:1,duration:.45,ease:"power1.out"},55.94);
+tl.from("#s5-w",{x:-120,scale:.92,duration:1.0,ease:"expo.out"},55.94);
+tl.to("#s5-w",{rotationY:-1.67,duration:3.77,ease:"sine.inOut"},56.84);
+tl.from("#s5-k",{y:20,opacity:0,duration:.45,ease:"power2.out"},55.99);
+tl.from("#s5-t",{y:56,opacity:0,duration:.75,ease:"power4.out"},56.09);
+tl.from("#s5-b",{y:24,opacity:0,duration:.6,ease:"sine.out"},56.34);
+tl.to("#s5-c0",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},58.24);
+tl.to("#s5-c1",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},59.28);
+gsap.set("#s6-w",{opacity:0,transformPerspective:2400,rotationY:5,rotationX:2});
+gsap.set(".chip[id^=s6-c]",{opacity:0,y:16,scale:.92});
+tl.from("#s6",{opacity:0,duration:.4,ease:"power2.out"},60.31);
+tl.to("#s6-w",{opacity:1,duration:.45,ease:"power1.out"},60.41);
+tl.from("#s6-w",{x:120,scale:.92,duration:1.0,ease:"expo.out"},60.41);
+tl.to("#s6-w",{rotationY:1.67,duration:12.79,ease:"sine.inOut"},61.31);
+tl.from("#s6-k",{y:20,opacity:0,duration:.45,ease:"power2.out"},60.46);
+tl.from("#s6-t",{y:56,opacity:0,duration:.75,ease:"power4.out"},60.56);
+tl.from("#s6-b",{y:24,opacity:0,duration:.6,ease:"sine.out"},60.81);
+tl.to("#s6-c0",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},61.11);
+tl.to("#s6-c1",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},64.13);
+tl.to("#s6-c2",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},67.67);
+tl.to("#s6-c3",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},71.60);
+gsap.set("#s7-w",{opacity:0,transformPerspective:2400,rotationY:-5,rotationX:2});
+gsap.set(".chip[id^=s7-c]",{opacity:0,y:16,scale:.92});
+tl.from("#s7",{opacity:0,duration:.4,ease:"power2.out"},73.80);
+tl.to("#s7-w",{opacity:1,duration:.45,ease:"power1.out"},73.90);
+tl.from("#s7-w",{x:-120,scale:.92,duration:1.0,ease:"expo.out"},73.90);
+tl.to("#s7-w",{rotationY:-1.67,duration:11.77,ease:"sine.inOut"},74.80);
+tl.from("#s7-k",{y:20,opacity:0,duration:.45,ease:"power2.out"},73.95);
+tl.from("#s7-t",{y:56,opacity:0,duration:.75,ease:"power4.out"},74.05);
+tl.from("#s7-b",{y:24,opacity:0,duration:.6,ease:"sine.out"},74.30);
+tl.to("#s7-c0",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},74.60);
+tl.to("#s7-c1",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},76.80);
+tl.to("#s7-c2",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},81.02);
+tl.to("#s7-c3",{opacity:1,y:0,scale:1,duration:.45,ease:"expo.out"},84.28);
+gsap.set("#s8-cmd,#s8-links",{opacity:0,y:24});
+tl.from("#s8",{opacity:0,duration:.35,ease:"power2.out"},86.27);
+tl.from("#s8-icon",{scale:.5,opacity:0,duration:.9,ease:"expo.out"},86.42);
+tl.from("#s8-brand",{y:50,opacity:0,duration:.8,ease:"power4.out"},86.62);
+tl.from("#s8-tag",{y:24,opacity:0,duration:.6,ease:"sine.out"},91.05);
+tl.to("#s8-cmd",{opacity:1,y:0,duration:.6,ease:"expo.out"},93.91);
+tl.to("#s8-links",{opacity:1,y:0,duration:.6,ease:"expo.out"},96.61);
+tl.to("#s8-sp",{scale:1.06,duration:.4,ease:"power2.out"},97.81);
+tl.to("#s8-sp",{scale:1,duration:.5,ease:"power2.inOut"},98.21);
+tl.to("#s8 .center",{opacity:0,duration:.5,ease:"power2.in"},99.58);
+window.__timelines["main"] = tl;
+</script>
+</body>
+</html>
