@@ -24,10 +24,78 @@ def replies():
     return out
 
 
+# ---- C2 (organizing) dynamic answers: they echo the message ids found in the prompt ----------------
+import re
+
+C2_MESSAGE = re.compile(r'<message id="(\d+)">\n(.*?)\n</message>', re.S)
+C2_AUTOMATED = re.compile(r"(noreply|no-reply|ci@|billing@|security@|notices@|trips@|alerts@)", re.I)
+C2_BULK = re.compile(r"(hello@|digest@|notes@|newsletter|weekly)", re.I)
+
+
+def c2_parse(user):
+    out = []
+    for mid, block in C2_MESSAGE.findall(user):
+        head, _, body = block.partition("\nBody:\n")
+        fields = dict(l.split(": ", 1) for l in head.split("\n") if ": " in l)
+        out.append({"id": int(mid), "from": fields.get("From", ""), "subject": fields.get("Subject", ""), "body": body})
+    return out
+
+
+def c2_kind(m):
+    if m["subject"].lower().startswith("invitation"):
+        return "invitations"
+    if C2_AUTOMATED.search(m["from"]):
+        return "notifications"
+    if C2_BULK.search(m["from"]):
+        return "newsletters"
+    return "personal"
+
+
+def c2_dynamic(system, user):
+    """Answers for the prompts of features 11-13 and 15, or None for any other request."""
+    if "You sort incoming email" in system:
+        labels = []
+        for m in c2_parse(user):
+            kind = c2_kind(m)
+            ask = kind in ("personal", "invitations") and ("?" in m["body"] or "let me know" in m["body"].lower())
+            reason = {"notifications": "automated notice", "newsletters": "bulk mailing", "invitations": "event invitation"}.get(
+                kind, "asks a direct question" if ask else "personal message, nothing to answer")
+            labels.append({"id": m["id"], "category": kind, "needs_reply": ask, "priority": 2 if ask else 1, "reason": reason})
+        return json.dumps({"labels": labels})
+    if "that the owner of the mailbox SENT" in system:
+        msgs = c2_parse(user)
+        asks = bool(msgs) and "?" in msgs[0]["body"]
+        return json.dumps({"expects_reply": asks, "awaiting": "an answer to the question" if asks else ""})
+    if "daily briefing of the owner" in system:
+        msgs = c2_parse(user)
+        people = [m for m in msgs if c2_kind(m) == "personal"]
+        others = [m for m in msgs if c2_kind(m) != "personal"]
+        lines = ["## People"]
+        for m in people[:8]:
+            name = m["from"].split("<")[0].strip() or m["from"]
+            lines.append(f"- **{name}**: {m['subject']} [open](mail:{m['id']})")
+        asks = [m for m in people if "?" in m["body"]]
+        if asks:
+            lines += ["", "## Needs your action"]
+            for m in asks[:5]:
+                lines.append(f"- Answer {m['from'].split('<')[0].strip()} about [{m['subject']}](mail:{m['id']})")
+        if others:
+            lines += ["", "## Everything else"]
+            for kind in ("notifications", "newsletters", "invitations"):
+                n = sum(1 for m in others if c2_kind(m) == kind)
+                if n:
+                    lines.append(f"- {kind.capitalize()}: {n} unread")
+        return "\n".join(lines)
+    return None
+
+
 def answer_for(body):
     msgs = body.get("messages", [])
     system = " ".join(m.get("content", "") for m in msgs if m.get("role") == "system")
     user = msgs[-1].get("content", "") if msgs else ""
+    dynamic = c2_dynamic(system, user)
+    if dynamic is not None:
+        return dynamic
     for r in replies():
         if r.get("match", "\0") in system or r.get("match_user", "\0") in user:
             return r["answer"]

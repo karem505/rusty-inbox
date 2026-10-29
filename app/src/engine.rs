@@ -425,6 +425,8 @@ pub struct ListSpec {
     pub show_done: bool,
     /// `"list":"contact"`: conversations with this address
     pub contact: Option<String>,
+    /// `"list":"search"`: the query in the app's search language // AI(C2)
+    pub query: Option<String>,
 }
 
 impl ListSpec {
@@ -442,6 +444,7 @@ impl ListSpec {
             folder: v["folder"].as_i64(),
             show_done: v["showDone"].as_bool().unwrap_or(false),
             contact: opt("contact"),
+            query: v["query"].as_str().map(str::to_string),
         }
     }
 
@@ -455,6 +458,13 @@ impl ListSpec {
             "pinned" => ListFilter::Pinned,
             "contact" => ListFilter::Contact(self.contact.clone().unwrap_or_default()),
             "snoozed" => ListFilter::Snoozed { account },
+            // AI(C2)
+            "needsReply" => ListFilter::NeedsReply { account },
+            "followUp" => ListFilter::FollowUp { account },
+            "search" => ListFilter::Query(rusty_inbox_core::search::parse(
+                self.query.as_deref().unwrap_or_default(),
+                chrono_now_ms(),
+            )),
             "sent" | "drafts" | "trash" | "spam" | "archive" => ListFilter::Role { account, role: self.list.clone() },
             _ => ListFilter::Inbox { account, done: false, category: self.category.clone(), with_done: self.show_done },
         }
@@ -511,6 +521,8 @@ pub fn sidebar_of(store: &Store) -> Value {
         "pinned": c.pinned,
         "snoozed": c.snoozed,
         "drafts": c.drafts,
+        "needsReply": c.needs_reply, // AI(C2)
+        "followUp": c.follow_up,
         "scheduled": store.outgoing_in("queued").map(|v| v.len()).unwrap_or(0)
             + store.outgoing_in("failed").map(|v| v.len()).unwrap_or(0),
         "categories": categories,
@@ -533,6 +545,10 @@ pub fn thread_json(t: &ThreadRow) -> Value {
         "done": t.done,
         "attachments": t.has_attachments,
         "category": t.category,
+        "needsReply": t.needs_reply, // AI(C2)
+        "aiReason": t.ai_reason,
+        "followUp": t.follow_up,
+        "awaiting": t.awaiting,
         "from": name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| addr.clone()),
         "fromAddr": addr,
     })
@@ -579,6 +595,10 @@ pub fn scheduled_of(store: &Store, account: Option<&str>) -> Value {
                 "done": false,
                 "attachments": !d.attachments.is_empty(),
                 "category": "personal",
+                "needsReply": false, // AI(C2)
+                "aiReason": "",
+                "followUp": false,
+                "awaiting": "",
                 "from": format!("To: {}", if to.is_empty() { "(no recipients)".to_string() } else { to.join(", ") }),
                 "fromAddr": d.to.first().map(|a| a.address.clone()).unwrap_or_default(),
                 "scheduled": true,
@@ -1024,11 +1044,29 @@ mod tests {
             participants: vec![],
             last_from: (Some("  ".into()), "b@y".into()),
             category: "people".into(),
+            needs_reply: true,
+            ai_reason: "asks a question".into(),
+            follow_up: false,
+            awaiting: String::new(),
         };
         let v = thread_json(&t);
         assert_eq!(v["from"], "b@y");
         assert_eq!(v["id"], 7);
         assert_eq!(v["unread"], true);
+        assert_eq!((v["needsReply"].clone(), v["aiReason"].clone()), (json!(true), json!("asks a question")));
+    }
+
+    #[test]
+    fn ai_lists_parse_from_the_spec() {
+        assert_eq!(
+            ListSpec::parse(r#"{"list":"needsReply","account":"a@x"}"#).filter(),
+            ListFilter::NeedsReply { account: Some("a@x".into()) }
+        );
+        assert_eq!(filter_for("followUp"), ListFilter::FollowUp { account: None });
+        match ListSpec::parse(r#"{"list":"search","query":"from:maya has:attachments"}"#).filter() {
+            ListFilter::Query(q) => assert!(q.has_attachments && q.from == vec!["maya"]),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

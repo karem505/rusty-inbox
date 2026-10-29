@@ -7,6 +7,7 @@
 //! - [`compose`] drafts, reply / reply-all / forward, outgoing message building.
 //! - [`search`] the search query language.
 
+pub mod ai_store;
 pub mod compose;
 pub mod engine;
 pub mod mail;
