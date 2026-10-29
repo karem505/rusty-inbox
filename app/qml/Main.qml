@@ -85,6 +85,74 @@ ApplicationWindow {
         }
     }
 
+    // ---- AI(C2): organizing (docs/ai/DESIGN.md features 11-15) ---------------------------------
+    property var aiFeat: ({})                  // {available, filter, needsReply, followUps, search, briefing}
+    property string aiStatus: ""               // quiet error of the background jobs, "" when fine
+    property var briefingInfo: ({ state: "idle", has: false, markdown: "" })
+    property bool searchOpen: false
+    property bool asking: false
+    property string askError: ""
+    property int askId: -1
+    readonly property bool aiSearchOn: aiFeat.search === true
+
+    AiInbox {
+        id: aiInbox
+        onLabels_changed: win.reload()
+        onStatus_changed: win.aiStatus = JSON.parse(aiInbox.status_json()).error
+        onBriefing_changed: win.briefingInfo = JSON.parse(aiInbox.briefing_json())
+        onAsk_done: (id, query, error) => win.askDone(id, query, error)
+        onOpen_requested: (threadId) => { win.showWindow(); win.select({ list: "inbox" }); win.openThread(threadId) }
+        onBriefing_requested: { win.showWindow(); win.select({ list: "briefing" }) }
+    }
+    function refreshAi() {
+        aiFeat = JSON.parse(aiInbox.features_json())
+        aiInbox.refresh()
+        briefingInfo = JSON.parse(aiInbox.briefing_json())
+        reload()
+    }
+    onPrefsChanged: refreshAi()
+    function dismissAi(id) {
+        aiInbox.dismiss(id)
+        reload()
+        toast.show(qsTr("Marked as not needed"), false)
+    }
+    function openSearch() {
+        searchOpen = true
+        Qt.callLater(() => threadList.focusSearch())
+    }
+    function closeSearch() {
+        searchOpen = false
+        asking = false
+        askError = ""
+        askId = -1
+        threadList.searchText = ""
+        if (spec.list === "search") select({ list: "inbox" })
+        threadList.forceActiveFocus()
+    }
+    // Enter / the sparkle button: a question goes to the model, which answers with a query that
+    // replaces the text (editable) and runs; anything else is a search as typed
+    function submitSearch(text, ask) {
+        text = text.trim()
+        askError = ""
+        if (text === "") { if (spec.list === "search") select({ list: "inbox" }); return }
+        if ((ask || text.startsWith("?")) && aiSearchOn) {
+            const q = text.replace(/^\?\s*/, "")
+            if (q === "") return
+            asking = true
+            askId = aiInbox.ask(q)
+            return
+        }
+        runSearch(text.replace(/^\?\s*/, ""))
+    }
+    function runSearch(query) { select({ list: "search", query: query }) }
+    function askDone(id, query, error) {
+        if (id !== askId) return           // a newer question, or the search was closed
+        asking = false
+        if (error !== "") { askError = error; return }
+        threadList.searchText = query
+        runSearch(query)
+    }
+
     // the inbox can keep Done conversations (Settings or the eye button above the list)
     readonly property bool showDoneView: spec.list === "inbox" && !spec.folder && prefs.showDoneInInbox === true
     function toggleShowDone() {
@@ -106,6 +174,8 @@ ApplicationWindow {
     }
 
     function select(s) {
+        if (s.list !== "search" && searchOpen) { searchOpen = false; asking = false; askError = ""; askId = -1; threadList.searchText = "" }
+        if (s.list === "briefing") briefingInfo = JSON.parse(aiInbox.briefing_json())
         spec = s
         closeThread()
         threadList.clearSelection()
@@ -320,7 +390,17 @@ ApplicationWindow {
             openThread(id)
         }
     }
+    // AI(C1): a suggested reply picked in the reader opens the reply composer with that text
+    function replyWithText(text) {
+        const msgs = readerLoader.item && readerLoader.item.lastMessages
+        if (composerLoader.active || !msgs || !msgs.length) return
+        compose("reply", msgs[msgs.length - 1].id)
+        if (composerLoader.item) composerLoader.item.prefillReply(text)
+    }
     function closeComposer() {
+        // let the composer's pending web view calls finish first (see Composer.whenIdle)
+        const c = composerLoader.item
+        if (c && !c.closing) { c.whenIdle(win.closeComposer); return }
         composerLoader.active = false
         composeExpanded = false
         reload()
@@ -419,7 +499,8 @@ ApplicationWindow {
     }
     function listTitle(s) {
         const names = ({ inbox: qsTr("Smart Inbox"), pinned: qsTr("Pinned"), snoozed: qsTr("Snoozed"), done: qsTr("Done"),
-                         sent: qsTr("Sent"), drafts: qsTr("Drafts"), scheduled: qsTr("Scheduled"), archive: qsTr("Archive"), spam: qsTr("Spam"), trash: qsTr("Trash") })
+                         sent: qsTr("Sent"), drafts: qsTr("Drafts"), scheduled: qsTr("Scheduled"), archive: qsTr("Archive"), spam: qsTr("Spam"), trash: qsTr("Trash"),
+                         needsReply: qsTr("Needs reply"), followUp: qsTr("Follow up"), briefing: qsTr("Briefing"), search: qsTr("Search results") })
         if (s.list === "contact") return qsTr("Conversations with %1").arg(s.name || s.contact)
         let t = s.folder ? qsTr("Folder") : (names[s.list] || s.list)
         if (s.list === "inbox" && !prefs.smartInbox && !s.category) t = qsTr("Inbox")
@@ -436,6 +517,8 @@ ApplicationWindow {
         threadList.collapsed = prefs.collapseAutomated === false ? ({}) : ({ notifications: true, newsletters: true })
         reload()
         backend.start()
+        aiInbox.start()
+        refreshAi()
         const req = backend.take_request()
         if (req && req !== "show") Qt.callLater(() => win.handleRequest(req))
     }
@@ -443,7 +526,8 @@ ApplicationWindow {
     // ---- keyboard ---------------------------------------------------------------------------
     // single-key shortcuts only while the mail view has the keyboard (not in Settings or while
     // writing: the composer handles its own keys)
-    readonly property bool keysOn: !settingsPage.shown && !composerLoader.active && !contactCard.opened
+    readonly property bool keysOn: !settingsPage.shown && !composerLoader.active && !contactCard.opened && !threadList.searchFocused
+    Shortcut { sequence: "/"; enabled: win.keysOn; onActivated: win.openSearch() }   // AI(C2)
     Shortcut { sequences: ["C", "Ctrl+N"]; enabled: !settingsPage.shown && !composerLoader.active; onActivated: win.compose("new", 0) }
     Shortcut { sequence: "R"; enabled: win.keysOn; onActivated: win.respond("reply") }
     Shortcut { sequence: "A"; enabled: win.keysOn; onActivated: win.respond("replyAll") }
@@ -508,12 +592,24 @@ ApplicationWindow {
                 Layout.fillHeight: true
                 model: win.sidebarModel
                 spec: win.spec
+                aiFeat: win.aiFeat
+                aiStatus: win.aiStatus
                 onSelect: (s) => win.select(s)
             }
 
             ThreadList {
                 id: threadList
-                visible: !(composerLoader.active && win.composeExpanded)
+                visible: !(composerLoader.active && win.composeExpanded) && win.spec.list !== "briefing"
+                aiReplyMark: win.aiFeat.needsReply === true
+                aiFollowMark: win.aiFeat.followUps === true
+                searchOpen: win.searchOpen
+                askAvailable: win.aiSearchOn
+                asking: win.asking
+                askError: win.askError
+                onDismissAi: (id) => win.dismissAi(id)
+                onOpenSearch: win.openSearch()
+                onCloseSearch: win.closeSearch()
+                onSubmitSearch: (text, ask) => win.submitSearch(text, ask)
                 Layout.preferredWidth: readerLoader.active || composerLoader.active ? 440 : -1
                 Layout.fillWidth: !readerLoader.active && !composerLoader.active
                 Layout.fillHeight: true
@@ -530,6 +626,23 @@ ApplicationWindow {
                 onOpen: (id) => win.openThread(id)
                 onAction: (name, ids) => win.perform(name, ids)
                 onSnooze: (ids, anchor) => win.snoozeTargets(ids, anchor)
+            }
+
+            // AI(C2): the daily briefing takes the place of the list
+            AiBriefing {
+                id: briefingView
+                visible: win.spec.list === "briefing" && !(composerLoader.active && win.composeExpanded)
+                Layout.fillWidth: !readerLoader.active && !composerLoader.active
+                Layout.preferredWidth: readerLoader.active || composerLoader.active ? 440 : -1
+                Layout.fillHeight: true
+                info: win.briefingInfo
+                onRefresh: { aiInbox.refresh_briefing(); win.briefingInfo = JSON.parse(aiInbox.briefing_json()) }
+                onOpenMessage: (id) => {
+                    const t = aiInbox.thread_of_message(id)
+                    if (t <= 0) { toast.show(qsTr("That message is no longer here"), false); return }
+                    win.select({ list: "inbox" })
+                    win.openThread(t)
+                }
             }
 
             Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: Theme.border; visible: readerLoader.active || (composerLoader.active && !win.composeExpanded) }
@@ -585,6 +698,7 @@ ApplicationWindow {
                     function onOpenAttachment(id) { win.openAttachment(id) }
                     function onSaveAttachment(id, name) { win.saveAttachment(id, name) }
                     function onSaveAttachments(ids) { win.saveAttachments(ids) }
+                    function onSmartReply(text) { win.replyWithText(text) }     // AI(C1)
                 }
             }
         }
@@ -652,7 +766,10 @@ ApplicationWindow {
 
     function shot(name, then) {
         // the window's root item: the page plus popups (menus, dialogs, the contact card)
-        (win.contentItem.parent || page).grabToImage(r => { r.saveToFile(autotestDir + "/" + name + ".png"); console.warn("AUTOTEST shot", name); if (then) then() })
+        // Qt 6.12 refuses to grab the root item ("item has no QML engine"): then grab the page (no popups)
+        const done = r => { r.saveToFile(autotestDir + "/" + name + ".png"); console.warn("AUTOTEST shot", name); if (then) then() }
+        const root = win.contentItem.parent
+        if (!root || !root.grabToImage(done)) page.grabToImage(done)
     }
     function log(what) {
         console.warn("AUTOTEST", what, JSON.stringify({ threads: threads.length, inbox: sidebarModel.inbox, pinned: sidebarModel.pinned, snoozed: sidebarModel.snoozed, pending: pending.length, open: openId }))
@@ -681,9 +798,169 @@ ApplicationWindow {
             if (win.stressN % 25 === 0) { const c = Object.assign({}, threadList.collapsed); c.notifications = !c.notifications; threadList.collapsed = c }
         }
     }
+    // AI(B): `--autotest-ai-settings` runs only the AI pass below (the regular pass is skipped)
+    readonly property bool autotestAi: Qt.application.arguments.indexOf("--autotest-ai-settings") >= 0
+    readonly property bool autotestAiLight: Qt.application.arguments.indexOf("--autotest-ai-light") >= 0
+    property int aiStepB: 0
+    function shotB(name, then) {     // Qt 6.12: the window's root item has no QML engine, grab the page
+        page.grabToImage(r => { r.saveToFile(autotestDir + "/" + name + ".png"); console.warn("AUTOTEST shot", name); if (then) then() })
+    }
+    Timer {
+        id: aiScriptB
+        running: win.autotestDir !== "" && (win.autotestAi || win.autotestAiLight)
+        interval: 1400
+        repeat: true
+        onTriggered: {
+            const pg = settingsPage.aiPage
+            switch (win.aiStepB++) {
+            case 0: win.openSettings("ai"); pg.openLinks = false; settingsPage.save("themeMode", win.autotestAiLight ? "light" : "dark"); settingsPage.save("aiEnabled", true); break
+            case 1: win.shotB("ai-1-overview-empty"); break
+            case 2: pg.autotestUse("custom", "http://127.0.0.1:18765/v1"); break
+            case 3: pg.autotestScroll("model", 380); break
+            case 4: win.shotB("ai-2-custom-connected"); pg.autotestRealPicker("mt"); break
+            case 5: pg.grabPanel(win.autotestDir + "/ai-3a-real-popup.png", () => { win.log("ai real popup open"); pg.autotestOpenPicker("mt") }); break
+            case 6: win.log("ai picker rows " + JSON.stringify(pg.modelRows.map(r => r.id))); win.shotB("ai-3-model-picker-search"); break
+            case 7: pg.autotestOpenPicker(""); break
+            case 8: pg.pickModel("mock-thinker"); break
+            case 9: pg.autotestThinking("low"); break
+            case 10: pg.autotestClosePicker(); pg.autotestScroll("model", 120); break
+            case 11: win.log("ai chosen " + JSON.stringify([settingsPage.prefs.aiProvider, settingsPage.prefs.aiModel, settingsPage.prefs.aiThinking])); win.shotB("ai-4-model-thinking"); break
+            case 12: pg.autotestScroll("thinking", 100); pg.autotestTest(); break
+            case 13: break
+            case 14: win.log("ai test " + pg.testState + " " + pg.testReply + " " + pg.testError); win.shotB("ai-5-test-connection"); break
+            case 15: pg.autotestUse("custom", "http://127.0.0.1:9/v1"); break
+            case 16: pg.autotestScroll("model", 60); pg.autotestOpenPicker("x"); break
+            case 17: win.log("ai models error: " + pg.modelsState + " " + pg.modelsError); win.shotB("ai-6-model-list-error"); pg.autotestClosePicker(); break
+            case 18: pg.autotestUse("custom", "http://127.0.0.1:18765/v1"); break
+            case 19: pg.autotestUse("codex", ""); settingsPage.scrollTo(0); break
+            case 20: pg.fakeSignIn("browser"); pg.autotestScroll("provider", 0); break
+            case 21: win.shotB("ai-7-chatgpt-waiting"); pg.fakeSignIn("device"); break
+            case 22: win.shotB("ai-8-chatgpt-device-code"); pg.fakeSignIn("failed"); break
+            case 23: win.shotB("ai-9-chatgpt-failed"); settingsPage.save("aiSmartFilter", true); settingsPage.save("aiFollowUps", true); settingsPage.save("aiBriefing", true); pg.autotestScroll("language", 0); break
+            case 24: win.shotB("ai-10-features-reading"); pg.autotestScroll("organize", 0); break
+            case 25: win.shotB("ai-11-features-organizing"); pg.toggleExcluded(settingsPage.accounts[0].email); pg.autotestScroll("excluded", 0); break
+            case 26: win.shotB("ai-12-excluded-privacy"); break
+            case 27: console.warn("AUTOTEST end ai"); Qt.quit(); break
+            }
+        }
+    }
+    // AI(C1) ---- scripted AI pass (--autotest=<dir> --autotest-ai, mock server on RUSTY_INBOX_AI_URL) ------
+    readonly property bool aiTest: Qt.application.arguments.indexOf("--autotest-ai") >= 0
+    property int aiN: 0
+    property int aiTicks: 0
+    property bool aiActed: false
+    property bool aiSettled: false
+    property bool aiBusy: false
+    function aiR() { return readerLoader.item }
+    function aiC() { return composerLoader.item }
+    function aiOpen(list, subject) {
+        win.select({ list: list })
+        const t = win.threads.find(x => x.subject && x.subject.indexOf(subject) >= 0) || win.threads[0]
+        win.openThread(t.id)
+    }
+    function aiDraft() {
+        return "<p>Hi Maya,</p><p>Thanks for the quick turnaround. I looked at the timeline and teh packaging dates look fine, "
+            + "but we should confrim the announcment on tuesday.</p><p>Best,<br>Alex</p>"
+            + "<div class=\"ri-signature\"><br>-- <br>Alex Rivera<br>Northwind</div><br><div>On Mon, 5 Oct 2026 at 10:00, Maya Chen &lt;maya@northwind.dev&gt; wrote:</div>"
+            + "<blockquote class=\"ri-quote\">Tuesday. Mondays are noisy.</blockquote>"
+    }
+    readonly property var aiScript: [
+        { act: () => win.aiOpen("inbox", "Launch plan"), shot: "ai-reader-auto",
+          ready: () => aiR() && aiR().lastMessages && aiR().lastMessages.length >= 3 && aiR().assistantPanel.stateOf("summary") === "done" && aiR().assistantPanel.stateOf("replies") === "done" },
+        { act: () => aiR().assistantPanel.translate(), shot: "ai-translate", ready: () => aiR().assistantPanel.trReady && aiR().assistantPanel.trShown },
+        { act: () => aiR().assistantPanel.translate(), shot: "ai-translate-original", ready: () => !aiR().assistantPanel.trShown },
+        { act: () => aiR().assistantPanel.checkPhishing(), shot: "ai-phishing", ready: () => aiR().assistantPanel.stateOf("phishing") === "done" },
+        { act: () => { const a = [].concat(...aiR().lastMessages.map(m => m.attachments || []))[0]; aiR().assistantPanel.dismiss("summary"); aiR().assistantPanel.dismiss("replies"); aiR().assistantPanel.summarizeAttachment(a.id, a.name) },
+          shot: "ai-attachment-summary", ready: () => ["done", "error"].indexOf(aiR().assistantPanel.stateOf("attachment")) >= 0 },
+        { act: () => { aiR().assistantPanel.dismiss("attachment"); aiR().assistantPanel.suggestReplies() }, ready: () => aiR().assistantPanel.stateOf("replies") === "done" },
+        { act: () => aiR().smartReply(aiR().assistantPanel.st.replies.data.replies[0]), shot: "ai-reply-prefilled", ready: () => composerLoader.active && aiC().editorReady && aiC().aiOn },
+        { act: () => aiC().setEditorHtml(win.aiDraft()), shot: "ai-composer-button", ready: () => true },
+        { act: () => aiC().tools.openMenu(), shot: "ai-menu", ready: () => true },
+        { act: () => { aiC().tools.menu.close(); aiC().tools.doProofread() }, shot: "ai-proofread", ready: () => aiC().tools.phase === "result" },
+        { act: () => aiC().tools.apply("replace"), ready: () => aiC().tools.phase === "idle" },
+        { act: () => aiC().collect(d => console.warn("AUTOTEST ai replace kept signature/quote, fixed text:", d.html.indexOf("ri-signature") > 0, d.html.indexOf("ri-quote") > 0, d.html.indexOf("teh packaging") < 0 && d.html.indexOf("the packaging") > 0, d.html.indexOf("Mondays are noisy") > 0)), ready: () => true },
+        { act: () => aiC().tools.doRewrite("formal", "Formal"), shot: "ai-rewrite", ready: () => aiC().tools.phase === "result" },
+        { act: () => aiC().tools.doTranslate("Arabic"), shot: "ai-translate-draft", ready: () => aiC().tools.phase === "result" },
+        { act: () => { aiC().tools.dismiss(); aiC().tools.askWrite() }, shot: "ai-write-input", ready: () => true },
+        { act: () => aiC().tools.startWrite("Tell Maya Tuesday works, thank her for the benchmark section and ask for the final deck by Friday."), shot: "ai-write-streaming", ready: () => aiC().tools.phase === "loading" && aiC().tools.partialText.length > 60 },
+        { act: () => {}, shot: "ai-write-result", ready: () => aiC().tools.phase === "result" },
+        { act: () => { aiC().tools.dismiss(); aiC().tools.doSubjects() }, shot: "ai-subjects", ready: () => aiC().tools.subjects.length === 3 },
+        { act: () => aiC().tools.failForTest(), shot: "ai-error", ready: () => aiC().tools.phase === "error" },
+        { act: () => { aiC().tools.dismiss(); aiC().discard() }, ready: () => !composerLoader.active },
+        { act: () => win.aiOpen("spam", "You have won"), ready: () => aiR() && aiR().lastMessages && aiR().lastMessages.length >= 1 && aiR().assistantPanel.aiOn },
+        { act: () => aiR().assistantPanel.checkPhishing(), shot: "ai-phishing-high", ready: () => aiR().assistantPanel.stateOf("phishing") === "done" },
+        { act: () => { const t = win.threads.find(x => x.id === win.openId); win.aiExcludedAccount = t ? t.account : ""; backend.set_setting("aiExcluded", JSON.stringify(win.aiExcludedAccount)); aiR().assistantPanel.summarize() },
+          shot: "ai-excluded", ready: () => aiR().assistantPanel.stateOf("summary") === "error" },
+        { act: () => { backend.set_setting("aiExcluded", "\"\""); aiR().assistantPanel.summarize() }, ready: () => aiR().assistantPanel.stateOf("summary") === "done" }
+    ]
+    property string aiExcludedAccount: ""
+    Timer {
+        id: aiC1
+        interval: 500
+        repeat: true
+        onTriggered: {
+            if (win.aiBusy) return
+            const s = win.aiScript[win.aiN]
+            if (!s) { console.warn("AUTOTEST end"); Qt.quit(); return }
+            if (!win.aiActed) {
+                win.aiActed = true
+                win.aiTicks = 0
+                try { s.act() } catch (e) { console.warn("AUTOTEST ai step", win.aiN, "act failed:", e) }
+                return
+            }
+            let ok = false
+            try { ok = s.ready() } catch (e) { console.warn("AUTOTEST ai step", win.aiN, "ready failed:", e) }
+            if (!ok && ++win.aiTicks <= 40) return
+            if (ok && !win.aiSettled) { win.aiSettled = true; return }     // let the animations finish
+            console.warn("AUTOTEST ai step", win.aiN, s.shot || "-", ok ? "ok" : "TIMEOUT " + (aiR() ? JSON.stringify(aiR().assistantPanel.st) : "").slice(0, 600))
+            const next = () => { win.aiN++; win.aiActed = false; win.aiSettled = false; win.aiBusy = false }
+            if (s.shot) { win.aiBusy = true; win.shot(s.shot, next) } else next()
+        }
+    }
+    // AI(C1) ---- end of the AI pass
+
+    // ---- AI(C2) scripted check: --autotest=<dir> --autotest-ai-organize (mock server on RUSTY_INBOX_AI_URL) ----
+    readonly property bool autotestAiOrg: Qt.application.arguments.indexOf("--autotest-ai-organize") >= 0
+    readonly property int aiOrganizeBase: 92       // first step number of the block below
+    function aiOrganizeStep(i) {
+        const ai = (what) => console.warn("AUTOTEST ai", what, JSON.stringify({ threads: threads.length, needsReply: sidebarModel.needsReply, followUp: sidebarModel.followUp, status: aiStatus, feat: aiFeat }))
+        switch (i) {
+        case 0: select({ list: "inbox" }); break
+        case 1: ai("smart inbox with Reply marks: " + threads.filter(t => t.needsReply).map(t => t.from + "/" + t.category).join(", ")); shot("ai-1-smart-inbox"); break
+        case 2: select({ list: "needsReply" }); break
+        case 3: ai("needs reply list: " + threads.map(t => t.subject).join(" | ")); shot("ai-2-needs-reply"); break
+        case 4: select({ list: "followUp" }); break
+        case 5: ai("follow up list: " + threads.map(t => t.subject + " [" + t.awaiting + "]").join(" | ")); shot("ai-3-follow-up"); break
+        case 6: select({ list: "inbox" }); openSearch(); break
+        case 7: threadList.searchText = "? invoices from Cloudhost last month"; submitSearch(threadList.searchText, false); break
+        case 8: asking = true; shot("ai-4-ask-asking", () => { asking = false }); break    // the mock answers at once: show the busy state by hand
+        case 9: break
+        case 10: ai("ask: field='" + threadList.searchText + "' list=" + spec.list + " query=" + spec.query + " error='" + askError + "' results=" + threads.map(t => t.subject).join(" | ")); shot("ai-5-ask-results"); break
+        case 11: threadList.searchText = "?  ??? gibberish no such filter"; submitSearch(threadList.searchText, false); break
+        case 12: break
+        case 13: ai("second question error='" + askError + "'"); shot("ai-6-ask-error"); break
+        case 14: closeSearch(); select({ list: "briefing" }); break
+        case 15: briefingView.refresh(); break
+        case 16: shot("ai-7-briefing"); break
+        case 17: { const keep = briefingInfo; briefingInfo = Object.assign({}, keep, { state: "loading" }); shot("ai-8-briefing-loading", () => { briefingInfo = keep }) } break
+        case 18: { const keep = briefingInfo; briefingInfo = { state: "error", has: false, markdown: "", error: "The provider answered HTTP 429: you have reached your usage limit." }; shot("ai-9-briefing-error", () => { briefingInfo = keep }) } break
+        case 19: { const m = /mail:(\d+)/.exec(briefingInfo.markdown || ""); ai("briefing markdown " + (briefingInfo.markdown || "").length + " chars, first link " + (m ? m[1] : "none")); if (m) briefingView.openMessage(parseInt(m[1])) } break
+        case 20: case 21: break
+        case 22: ai("opened from the briefing: thread " + openId + " list " + spec.list); shot("ai-10-briefing-link-opened"); break
+        case 23: closeThread(); select({ list: "needsReply" }); break
+        case 24: { const n = threads.length; const t = threads[0]; if (t) { dismissAi(t.id); win.picked.nr = n } } break
+        case 25: ai("after Not needed (was " + win.picked.nr + ")"); break
+        case 26: aiStatus = "The provider answered HTTP 429: you have reached your usage limit."; select({ list: "inbox" }); break
+        case 27: shot("ai-11-status-in-sidebar", () => { aiStatus = "" }); break
+        case 28: { aiFeat = {}; reload() } break
+        case 29: shot("ai-12-features-off-view"); break
+        case 30: console.warn("AUTOTEST end"); Qt.quit(); break
+        }
+    }
+
     Timer {
         id: script
-        running: win.autotestDir !== ""
+        running: win.autotestDir !== "" && !win.autotestAi && !win.autotestAiLight
         interval: 1500
         repeat: true
         onTriggered: {
@@ -787,7 +1064,9 @@ ApplicationWindow {
             case 88: if (readerLoader.item) readerLoader.item.clickFirst(".from a.who"); break
             case 89: { const a = contactCard.address; contactCard.close(); if (a) win.showContact(a, contactCard.displayName); break }
             case 90: win.log("contact conversations " + win.listTitle(win.spec)); win.shot("33-contact-conversations"); break
-            case 91: console.warn("AUTOTEST end"); Qt.quit(); break
+            case 91: if (win.aiTest) { aiC1.start(); break }     // AI(C1): hand over to the AI pass
+                if (!win.autotestAiOrg) { console.warn("AUTOTEST end"); Qt.quit() } break
+            default: if (win.autotestAiOrg) win.aiOrganizeStep(win.step - 1 - win.aiOrganizeBase); break
             }
         }
     }

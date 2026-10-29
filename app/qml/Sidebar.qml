@@ -13,6 +13,9 @@ Rectangle {
     signal openSettings(string page)
     property string updateVersion: ""
     signal compose()
+    // AI(C2): which organizing features are on ({needsReply, followUps, briefing, filter}) and the quiet error status
+    property var aiFeat: ({})
+    property string aiStatus: ""
 
     property var expanded: ({})
     // unified lists unfolded into their accounts (list name -> true)
@@ -60,7 +63,11 @@ Rectangle {
         property bool expandable: false
         property bool open: false
         property var action: null     // custom tap (e.g. Settings) instead of selecting a list
+        property string tip: ""
         HoverHandler { id: hover; cursorShape: Qt.PointingHandCursor }
+        ToolTip.visible: hover.hovered && item.tip !== ""
+        ToolTip.delay: 600
+        ToolTip.text: item.tip
         TapHandler {
             onTapped: {
                 if (item.action) item.action()
@@ -260,6 +267,50 @@ Rectangle {
                     count: modelData.unread
                     indent: 14
                 }
+            }
+            // AI(C2): organizing lists, shown only when their feature is on
+            NavItem {
+                objectName: "needsReplyEntry"
+                visible: root.aiFeat.needsReply === true
+                target: ({ list: "needsReply" })
+                label: qsTr("Needs reply")
+                icon: "reply"
+                count: root.model.needsReply || 0
+                countIsUnread: false
+                tip: qsTr("Mail that expects an answer from you")
+            }
+            NavItem {
+                objectName: "followUpEntry"
+                visible: root.aiFeat.followUps === true
+                target: ({ list: "followUp" })
+                label: qsTr("Follow up")
+                icon: "follow-up"
+                count: root.model.followUp || 0
+                countIsUnread: false
+                tip: qsTr("Mail you sent that got no answer yet")
+            }
+            NavItem {
+                objectName: "briefingEntry"
+                visible: root.aiFeat.briefing === true
+                target: ({ list: "briefing" })
+                label: qsTr("Briefing")
+                icon: "sparkle"
+            }
+            Text {
+                objectName: "aiStatus"
+                visible: root.aiStatus !== "" && (root.aiFeat.needsReply === true || root.aiFeat.followUps === true || root.aiFeat.briefing === true || root.aiFeat.filter === true)
+                width: col.width
+                leftPadding: 10
+                topPadding: 2
+                bottomPadding: 2
+                text: qsTr("AI paused, will retry")
+                elide: Text.ElideRight
+                font.pixelSize: 12
+                color: Theme.textMuted
+                HoverHandler { id: statusHover }
+                ToolTip.visible: statusHover.hovered
+                ToolTip.delay: 300
+                ToolTip.text: root.aiStatus
             }
             UnifiedList { list: "pinned"; label: qsTr("Pinned"); icon: "pin"; count: root.model.pinned; countIsUnread: false }
             UnifiedList { list: "snoozed"; label: qsTr("Snoozed"); icon: "clock"; count: root.model.snoozed; countIsUnread: false }

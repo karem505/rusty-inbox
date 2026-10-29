@@ -15,6 +15,8 @@ pub mod features;
 pub mod http;
 pub mod models;
 pub mod provider;
+#[cfg(test)]
+pub(crate) mod testutil;
 
 pub use chat::{chat, ChatOutput, ChatRequest, Message, Role, Usage};
 pub use models::{list_models, ModelInfo};

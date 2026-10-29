@@ -1,0 +1,14 @@
+[
+  {
+    "match_user": "gibberish",
+    "answer": "label:nonsense"
+  },
+  {
+    "match_user": "Cloudhost",
+    "answer": "invoice from:cloudhost since:2026-10-01"
+  },
+  {
+    "match": "turn a question about someone's mailbox",
+    "answer": "launch plan"
+  }
+]

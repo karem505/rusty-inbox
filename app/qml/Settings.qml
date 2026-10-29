@@ -17,6 +17,13 @@ Rectangle {
     property bool showManual: false
     signal closed()
     signal notice(string text)
+    property alias aiPage: aiSettingsPage     // scripted check (Main.qml, AI(B))
+    function scrollTo(y) { scroller.contentItem.contentY = y }
+    function scrollToItem(it, above) {
+        const p = it.mapToItem(scroller.contentItem.contentItem, 0, 0)
+        scroller.contentItem.contentY = Math.max(0, p.y - 20 - (above || 0))
+    }
+    function pageHeight() { return scroller.contentItem.contentHeight - scroller.height }
 
     color: Theme.window
     focus: true
@@ -109,6 +116,7 @@ Rectangle {
         { id: "accounts", label: qsTr("Accounts"), icon: "account" },
         { id: "notifications", label: qsTr("Notifications"), icon: "bell" },
         { id: "appearance", label: qsTr("Appearance"), icon: "palette" },
+        { id: "ai", label: qsTr("AI"), icon: "sparkle" },
         { id: "templates", label: qsTr("Templates"), icon: "template" },
         { id: "shortcuts", label: qsTr("Shortcuts"), icon: "keyboard" },
         { id: "updates", label: qsTr("Updates"), icon: "update" },
@@ -1101,6 +1109,14 @@ Rectangle {
                             opacity: enabled ? 1 : 0.5
                             Toggle { key: "autoInstallUpdates" }
                         }
+                    }
+
+                    // ---------------- AI (qml/AiSettingsPage.qml)
+                    AiSettingsPage {
+                        id: aiSettingsPage
+                        visible: root.page === "ai"
+                        Layout.fillWidth: true
+                        host: root
                     }
 
                     // ---------------- About

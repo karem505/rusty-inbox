@@ -324,6 +324,7 @@ impl qobject::Backend {
         });
         engine::on_synced(move || {
             let _ = qt.queue(|mut obj: Pin<&mut qobject::Backend>| obj.as_mut().mail_changed());
+            crate::ai_inbox::wake(); // AI(C2): new mail may need a label
         });
     }
 
