@@ -754,8 +754,8 @@ ApplicationWindow {
     onFrameSwapped: if (!firstFrame) { firstFrame = true; if (autotestDir !== "") console.warn("AUTOTEST firstframe", threads.length) }
 
     function shot(name, then) {
-        // the window's root item: the page plus popups (menus, dialogs, the contact card)
-        (win.contentItem.parent || page).grabToImage(r => { r.saveToFile(autotestDir + "/" + name + ".png"); console.warn("AUTOTEST shot", name); if (then) then() })
+        // the page (the window's root item has no QML engine of its own: grabToImage fails on it)
+        page.grabToImage(r => { r.saveToFile(autotestDir + "/" + name + ".png"); console.warn("AUTOTEST shot", name); if (then) then() })
     }
     function log(what) {
         console.warn("AUTOTEST", what, JSON.stringify({ threads: threads.length, inbox: sidebarModel.inbox, pinned: sidebarModel.pinned, snoozed: sidebarModel.snoozed, pending: pending.length, open: openId }))
