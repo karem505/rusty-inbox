@@ -32,6 +32,11 @@ impl SecretStore for StoreSecrets {
     }
 }
 
+/// The scripted UI check points every feature at a mock server (`RUSTY_INBOX_AI_URL`).
+pub fn test_hook() -> bool {
+    test_url().is_some()
+}
+
 fn test_url() -> Option<String> {
     std::env::var("RUSTY_INBOX_AI_URL").ok().filter(|s| !s.trim().is_empty())
 }
@@ -64,6 +69,13 @@ pub fn active() -> Result<Active, String> {
     if p["aiEnabled"] != serde_json::json!(true) {
         return Err("AI is off. Turn it on in Settings → AI.".into());
     }
+    selected()
+}
+
+/// The provider + model chosen in Settings, whether or not the master switch is on and ignoring the
+/// test hook (Settings → AI uses it for "Test connection" and the model list).
+pub fn selected() -> Result<Active, String> {
+    let p = settings::all(core().store());
     let kind =
         p["aiProvider"].as_str().and_then(ProviderKind::from_id).ok_or("Choose an AI provider in Settings → AI.")?;
     let model = p["aiModel"].as_str().unwrap_or_default().trim().to_string();
