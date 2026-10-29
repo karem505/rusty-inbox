@@ -32,6 +32,16 @@ native Rust and the interface is Qt Quick, not a browser shell.
 
 ## Features
 
+- **Optional AI assistant (new in 0.2.0).** Choose the provider and the model: sign in with your
+  ChatGPT subscription (no API key), or use OpenAI, Anthropic, OpenRouter, Ollama (local or
+  cloud) or any OpenAI-compatible server. The model list is fetched live from the provider and
+  is searchable, and you can set the thinking level. It proofreads with the changes highlighted,
+  rewrites in six styles, translates, drafts a reply from a short instruction, summarizes a
+  conversation with its action items and due dates, suggests three replies, summarizes
+  attachments (PDF, DOCX, text) and checks suspicious mail for phishing. Optional background
+  helpers keep a *Needs reply* list, remind you about sent mail that got no answer, answer
+  plain-words questions in the search field and write a daily briefing. Everything is a preview
+  until you click Replace, and it is all off until you turn it on.
 - **Smart Inbox.** Mail from people comes first. Notifications, newsletters and invitations go
   into their own groups, which you can fold away.
 - **Instant new mail.** Each account waits on its Inbox with IMAP IDLE, so new mail shows the
@@ -81,10 +91,20 @@ A full tour on YouTube, recorded on a demo mailbox:
 
 ## Install
 
+**On Linux, Flatpak is the recommended way to install.** It is signed, runs sandboxed, works on
+every distribution and updates with the rest of your apps:
+
+```sh
+flatpak install --user https://karem505.github.io/rusty-inbox/rusty-inbox.flatpakref
+```
+
+Already installed? `flatpak update` brings the new version. Run it with
+`flatpak run io.github.karem505.rusty-inbox` or from your app launcher.
+
 | Platform | Package |
 |---|---|
-| **Linux (Flatpak)** | `flatpak install --user https://karem505.github.io/rusty-inbox/rusty-inbox.flatpakref` (updates with `flatpak update`) |
-| **Linux (any distro)** | AppImage or Flatpak bundle from [Releases](https://github.com/karem505/rusty-inbox/releases) |
+| **Linux (recommended)** | Flatpak, the command above (updates with `flatpak update`) |
+| **Linux (other options)** | AppImage, Flatpak bundle or tarball from [Releases](https://github.com/karem505/rusty-inbox/releases) |
 | **Arch Linux** | `makepkg -si` in [`packaging/aur/rusty-inbox`](packaging/aur/rusty-inbox) (from source) or [`rusty-inbox-bin`](packaging/aur/rusty-inbox-bin); AUR listing coming |
 | **Windows 10/11** | Installer (`.exe`) or portable `.zip` from [Releases](https://github.com/karem505/rusty-inbox/releases) |
 | **macOS 12+** | `.dmg` (Apple Silicon and Intel) from [Releases](https://github.com/karem505/rusty-inbox/releases) |
@@ -95,9 +115,9 @@ A full tour on YouTube, recorded on a demo mailbox:
 curl -fsSL https://raw.githubusercontent.com/karem505/rusty-inbox/main/scripts/install.sh | sh
 ```
 
-The script picks the right package for your system: the AppImage, the Flatpak bundle or the
-macOS app. Pass `--method appimage|flatpak|source` to choose one yourself. Run it again to
-update.
+The script picks the right package for your system: Flatpak on Linux (the AppImage when Flatpak
+is not installed) and the app on macOS. An existing install keeps its method, so running it again
+updates in place. Pass `--method flatpak|appimage|tarball|source` to choose one yourself.
 
 Windows (PowerShell):
 
@@ -110,11 +130,13 @@ irm https://raw.githubusercontent.com/karem505/rusty-inbox/main/scripts/install.
 **Settings → Updates** shows the installed version, checks GitHub for a new release (daily or
 weekly, or on demand) and shows what changed. How the update is applied depends on the install:
 
+- **Flatpak (recommended on Linux):** the app tells you a new version is out; `flatpak update`
+  (or your software center) installs it.
 - **AppImage and Linux binary:** downloaded, checked against `SHA256SUMS` and swapped in place;
   restart to use it. Can also install automatically in the background.
 - **Windows installer:** runs the new installer silently and reopens the app.
 - **macOS:** downloads and opens the new disk image.
-- **Flatpak, AUR / distribution packages, source builds:** the app tells you a new version is out;
+- **AUR / distribution packages, source builds:** the app tells you a new version is out;
   update with `flatpak update`, your package manager or `git pull`.
 
 `rusty-inbox --check-update` does the same check from a terminal.
@@ -164,6 +186,8 @@ crates/rusty-inbox-core/  the mail engine, no UI
   src/store.rs            SQLite cache: threads, messages, outbox, settings
   src/compose.rs          drafts, reply / forward, mailto
   src/thunderbird.rs      Thunderbird profile import (NSS key4.db decryption)
+crates/rusty-inbox-ai/    the AI assistant, no UI: providers, live model lists, streamed chat,
+                          the ChatGPT sign-in (OAuth PKCE + device code), prompts and parsers
 tools/demo-video/         the scripts that recorded the videos above on a fake mailbox
 ```
 
@@ -182,6 +206,14 @@ updates (turn that off in Settings → Updates). It has no analytics, no crash r
 servers of its own. Your mail, settings and passwords stay in your data directory:
 `~/.local/share/rusty-inbox` on Linux, `~/Library/Application Support/rusty-inbox` on macOS,
 `%APPDATA%\rusty-inbox` on Windows.
+
+**AI assistant.** It is off until you turn it on in Settings → AI and choose a provider. Then the
+text of the mail you act on (or, for the background helpers you switch on, new mail) goes to that
+provider and nowhere else: OpenAI / ChatGPT, Anthropic, OpenRouter, ollama.com, or a server you
+run yourself (Ollama on this computer keeps everything local). The background helpers are off by
+default and only look at mail that arrives after you switch them on. Accounts listed under
+*Accounts excluded from AI* are never sent, by any feature. API keys and the ChatGPT sign-in are
+kept in the same local secret store as your mail passwords, never in settings or logs.
 
 ## Contributing
 

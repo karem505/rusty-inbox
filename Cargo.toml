@@ -4,7 +4,7 @@ members = ["crates/rusty-inbox-core", "crates/rusty-inbox-ai", "app"]
 
 [workspace.package]
 edition = "2021"
-version = "0.1.4"
+version = "0.2.0"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/karem505/rusty-inbox"
 

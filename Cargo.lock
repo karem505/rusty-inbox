@@ -2128,7 +2128,7 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "rusty-inbox"
-version = "0.1.4"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "cxx",
@@ -2151,7 +2151,7 @@ dependencies = [
 
 [[package]]
 name = "rusty-inbox-ai"
-version = "0.1.4"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "getrandom 0.3.4",
@@ -2168,7 +2168,7 @@ dependencies = [
 
 [[package]]
 name = "rusty-inbox-core"
-version = "0.1.4"
+version = "0.2.0"
 dependencies = [
  "aes",
  "anyhow",

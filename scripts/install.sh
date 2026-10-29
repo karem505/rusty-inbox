@@ -29,7 +29,7 @@ Rusty Inbox installer
 
 Usage: install.sh [--method appimage|flatpak|source|tarball|dmg] [--version X.Y.Z] [--update] [--uninstall]
 
-  --method     how to install (default: dmg on macOS, appimage on Linux)
+  --method     how to install (default: dmg on macOS; on Linux flatpak, or appimage without flatpak)
   --version    install this release instead of the latest
   --update     install the latest release if it is newer than the installed one
   --uninstall  remove what this script installed
@@ -89,11 +89,23 @@ installed_version() {
   return 0
 }
 
+flatpak_installed() {
+  have flatpak && { flatpak info --user "$APP_ID" >/dev/null 2>&1 || flatpak info "$APP_ID" >/dev/null 2>&1; }
+}
+
+# Linux: Flatpak is the main package (sandboxed, signed, updated by `flatpak update`). An existing
+# AppImage / binary install keeps its method, so `--update` never leaves two copies side by side.
 default_method() {
   if [ "$PLATFORM" = macos ]; then METHOD=dmg; return; fi
+  if flatpak_installed; then METHOD=flatpak; return; fi
+  if [ -e "$LIB_DIR/rusty-inbox.AppImage" ]; then METHOD=appimage; return; fi
+  if [ -e "$LIB_DIR/rusty-inbox-bin" ]; then METHOD=tarball; return; fi
+  if [ -e "$BIN_DIR/rusty-inbox" ]; then METHOD=source; return; fi
+  if have flatpak; then METHOD=flatpak; return; fi
   if [ -r /etc/os-release ] && grep -qi 'arch' /etc/os-release 2>/dev/null; then
     say "Arch Linux detected: a native package is also available (makepkg -si in packaging/aur/rusty-inbox-bin)."
   fi
+  say "Flatpak is not installed, so the AppImage is used (install flatpak and run this again to switch)."
   METHOD=appimage
 }
 
@@ -194,6 +206,12 @@ install_tarball() {
 
 install_flatpak() {
   have flatpak || die "flatpak is not installed"
+  if flatpak_installed; then
+    flatpak update --user -y --noninteractive "$APP_ID" 2>/dev/null || flatpak update -y --noninteractive "$APP_ID" ||
+      die "could not update $APP_ID"
+    say "Rusty Inbox (Flatpak) is up to date. Run: flatpak run $APP_ID"
+    return
+  fi
   if flatpak remote-info --user flathub "$APP_ID" >/dev/null 2>&1 ||
     flatpak remote-info flathub "$APP_ID" >/dev/null 2>&1; then
     flatpak install --user -y flathub "$APP_ID"

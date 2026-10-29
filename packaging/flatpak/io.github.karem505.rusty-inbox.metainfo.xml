@@ -78,6 +78,19 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.2.0" date="2026-10-29">
+      <description>
+        <p>An optional AI assistant, with the model and provider you choose:</p>
+        <ul>
+          <li>Providers: your ChatGPT subscription (sign in, no API key), OpenAI, Anthropic, OpenRouter, Ollama (local or cloud) or any OpenAI-compatible server; the model list comes live from the provider, with search and a thinking level</li>
+          <li>Writing: proofread with the changes highlighted, rewrite in six styles, translate, write a reply from a short instruction, suggest a subject</li>
+          <li>Reading: summary with action items and due dates, translation in place, three suggested replies, attachment summaries and a phishing check with reasons</li>
+          <li>Organizing (off until you turn it on): a Needs reply list, follow-up reminders for sent mail that got no answer, questions in plain words in the search field and a daily briefing</li>
+          <li>Off by default; nothing is sent until you choose a provider, and accounts you exclude are never sent</li>
+        </ul>
+        <p>Fixes: a crash when closing the composer while a draft was saving, with Qt 6.12</p>
+      </description>
+    </release>
     <release version="0.1.4" date="2026-10-18">
       <description>
         <p>Push that stays connected, and fewer connections to your mail server:</p>
