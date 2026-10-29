@@ -26,9 +26,14 @@ into people, notifications and newsletters. Every action works from the keyboard
 starts in a fraction of a second and stays light on memory, because the whole mail engine is
 native Rust and the interface is Qt Quick, not a browser shell.
 
-▶ **Watch the 50-second launch video on YouTube** (click the image):
+▶ **Watch on YouTube** (click an image): what's new in 0.2.0, the AI assistant (1:40), and the original launch video (0:53).
 
-[![Rusty Inbox launch video on YouTube](docs/screenshots/promo-poster-play.jpg)](https://www.youtube.com/watch?v=eDgUudd3zOw)
+<table>
+<tr>
+<td width="50%"><a href="https://www.youtube.com/watch?v=Tx4bGmOI94c"><img src="docs/screenshots/ai-poster-play.jpg" alt="Rusty Inbox 0.2.0: the AI assistant, on YouTube"></a><br><b>New in 0.2.0: the AI assistant</b> (ChatGPT, OpenAI, Anthropic, OpenRouter, Ollama)</td>
+<td width="50%"><a href="https://www.youtube.com/watch?v=eDgUudd3zOw"><img src="docs/screenshots/promo-poster-play.jpg" alt="Rusty Inbox launch video on YouTube"></a><br><b>Launch video</b>: fast, native, keyboard-first</td>
+</tr>
+</table>
 
 ## Features
 
