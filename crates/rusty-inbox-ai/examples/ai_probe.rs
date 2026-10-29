@@ -3,7 +3,10 @@
 //! ```sh
 //! cargo run -p rusty-inbox-ai --example ai_probe -- models custom http://127.0.0.1:18765/v1
 //! cargo run -p rusty-inbox-ai --example ai_probe -- chat custom http://127.0.0.1:18765/v1 mock "Say hi"
+//! cargo run -p rusty-inbox-ai --example ai_probe -- models ollama https://ollama.com   # AI_PROBE_KEY=...
+//! cargo run -p rusty-inbox-ai --example ai_probe -- chat anthropic - claude-sonnet-4-5 "Say hi" high
 //! ```
+//! The ChatGPT subscription needs the app's sign-in (tokens in the secret store), so it is not probed here.
 //! An API key, when the provider needs one, is read from `$AI_PROBE_KEY` (never from the command line).
 
 use rusty_inbox_ai::{chat, list_models, ChatRequest, Connection, MemorySecrets, Message, ProviderKind, SecretStore};

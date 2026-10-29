@@ -10,15 +10,15 @@ Status legend: [ ] not started, [~] in progress, [x] done and verified.
 
 ## A. Connection and settings (Settings → AI)
 - [ ] A1 Settings → AI page: master switch, provider picker, connection status, privacy notes
-- [ ] A2 Providers: Ollama (local or ollama.com with a key), OpenRouter, Anthropic, OpenAI (API key),
+- [~] A2 Providers (core done: Codex/OpenAI Responses, Anthropic, Ollama, OpenRouter, Custom; mock-tested, live for Codex/Ollama/OpenRouter; UI = B): Ollama (local or ollama.com with a key), OpenRouter, Anthropic, OpenAI (API key),
       ChatGPT subscription (Codex sign-in, no key), Custom OpenAI-compatible endpoint (base URL + key)
-- [ ] A3 Sign in with ChatGPT: browser login (PKCE, loopback 127.0.0.1:1455) with device-code fallback;
+- [~] A3 Sign in with ChatGPT (core done and mock-tested; real browser/device sign-in awaits the owner; UI = B): browser login (PKCE, loopback 127.0.0.1:1455) with device-code fallback;
       tokens refreshed automatically; shows the account email and plan; Sign out
 - [ ] A4 API keys stored in the app's local secret store (same place as mail passwords); never shown
       again after saving (only the last 4 characters); "Test connection"
-- [ ] A5 Model picker: the full list fetched live from the provider, searchable (fuzzy), refresh button,
+- [~] A5 Model picker (list part done, live-verified; picker UI = B): the full list fetched live from the provider, searchable (fuzzy), refresh button,
       shows name, id and context size; "use this id" for an id the list lacks
-- [ ] A6 Thinking level: the levels the chosen model supports (from the provider where it says so),
+- [~] A6 Thinking level (levels part done in ModelInfo.thinking per provider; UI = B): the levels the chosen model supports (from the provider where it says so),
       plus "Default"; hidden for models without reasoning control
 - [ ] A7 Per-feature switches; background features are off by default and labelled as sending mail
       content to the provider

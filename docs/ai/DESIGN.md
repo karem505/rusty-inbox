@@ -150,3 +150,30 @@ Custom `reasoning_effort`.
 - Never run the installed app (`~/.local/bin/rusty-inbox`) or touch `~/.local/share/rusty-inbox`;
   run your build with `RUSTY_INBOX_DATA_DIR=<a copy in your scratch dir>` and `QT_QPA_PLATFORM=offscreen`.
 - Never print or commit a key or token. Never send real mail.
+
+
+## Worker A notes
+- **Public additions** (nothing changed): `codex::{load_tokens, parse_claims, jwt_payload, pkce_challenge, Claims,
+  CALLBACK_PORT, PORT_BUSY_MESSAGE, is_port_busy}`, `chat::{responses_body, anthropic_body, anthropic_budget,
+  ollama_body, ollama_think}`, `models::{parse_codex, parse_openai, parse_anthropic, parse_ollama}`,
+  `http::{post_json_status, status_error}`.
+- **Port 1455 busy**: `start_browser_login()` returns `AiError::NotConfigured(text)` where `text` starts with
+  `codex::PORT_BUSY_MESSAGE` ("Port 1455 is already in use"). Test with `codex::is_port_busy(&err)`, then call
+  `start_device_login()`.
+- **Browser callback**: a wrong `state` gets HTTP 400 and is ignored (the wait goes on); other paths get 404; an
+  `error=` callback ends the wait with `AiError::Auth(error_description)`. The token exchange happens before the
+  browser page is written, so the page reports success or failure truthfully.
+- **Device interval** may arrive as a string (`"5"`); both forms are read. Floor 3 s, 429 backs off 5 s doubling to 40 s.
+- **Refresh**: one process-wide mutex; a 401 right after another thread refreshed (same access token, < 10 s) does
+  not refresh again. A refresh token the server refuses becomes `AiError::Auth("Your ChatGPT sign-in expired. Sign
+  in again in Settings → AI. (<server text>)")`; an empty refresh token fails the same way without any request.
+- **Live (2026-10-29)**: the Codex list had 8 models (gpt-6.1-sol first; levels low..ultra, `default_reasoning_level`
+  low/medium; context 272k-500k); chat `gpt-6.1-sol` at effort low answered "pong" in ~4 s. Ollama cloud `/api/tags`
+  returns 22 models with `capabilities` but no `details` (empty descriptions); the chat 429 text was
+  "you (<user>) have reached your weekly usage limit, add usage credits: https://ollama.com/settings (ref: ...)".
+- **Codex backend**: `instructions` is always sent (a default when the system prompt is empty) and
+  `max_output_tokens` is never sent; OpenAI gets `max_output_tokens` when `ChatRequest.max_tokens` is set.
+- **Cancel**: streams are read on a helper thread, so Cancel takes effect within ~50 ms even when the server is
+  silent; the wait for the *first* response byte (a slow model before it starts streaming) is not interruptible
+  (request timeout 5 min).
+- Not probed live (no keys on this PC): OpenAI and Anthropic. Their shapes follow the public docs and are mock-tested.

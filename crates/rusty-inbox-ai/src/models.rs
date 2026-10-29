@@ -72,7 +72,7 @@ fn codex_models(conn: &Connection, secrets: &dyn SecretStore) -> AiResult<Vec<Mo
         first => match fetch("0.0.0") {
             Ok(m) if !m.is_empty() => Ok(m),
             // both empty: report the first failure if there was one, else the empty list
-            second => first.or(second),
+            second => first.and(second),
         },
     }
 }
@@ -380,5 +380,274 @@ mod tests {
         assert!(m[1].thinking.is_empty());
         assert_eq!(m[2].thinking, vec!["low"]);
         assert_eq!(m[2].name, "c/must");
+    }
+}
+
+#[cfg(test)]
+mod wire_tests {
+    use super::*;
+    use crate::codex::tests::{jwt, now, signed_in, with_issuer};
+    use crate::testutil::{Mock, Resp};
+    use crate::MemorySecrets;
+    use serde_json::json;
+
+    fn keyed(kind: ProviderKind, key: &str) -> MemorySecrets {
+        let s = MemorySecrets::default();
+        s.set(&kind.key_secret(), key);
+        s
+    }
+
+    fn codex_catalog() -> Value {
+        json!({"models": [
+            {"slug": "gpt-6-luna", "display_name": "GPT-6 Luna", "description": "small", "visibility": "list", "priority": 5,
+             "context_window": 200000, "default_reasoning_level": "medium",
+             "supported_reasoning_levels": [{"effort": "low", "description": ""}, {"effort": "medium"}, {"effort": "high"}]},
+            {"slug": "internal-hidden", "visibility": "hide", "priority": 0},
+            {"slug": "gpt-6.1-sol", "display_name": "GPT-6.1 Sol", "visibility": "list", "priority": 1, "context_window": 400000,
+             "default_reasoning_level": "high",
+             "supported_reasoning_levels": [{"effort": "ultra"}, {"effort": "low"}, {"effort": "xhigh"}, {"effort": "high"}, {"effort": "weird"}]},
+            {"slug": "no-name", "visibility": "list", "priority": 3}
+        ]})
+    }
+
+    #[test]
+    fn codex_catalog_is_filtered_sorted_and_carries_levels() {
+        let m = parse_codex(&codex_catalog());
+        assert_eq!(m.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["gpt-6.1-sol", "no-name", "gpt-6-luna"]);
+        assert_eq!(m[0].name, "GPT-6.1 Sol");
+        assert_eq!(m[0].thinking, ["low", "high", "xhigh", "ultra"]);
+        assert_eq!(m[0].default_thinking.as_deref(), Some("high"));
+        assert_eq!(m[0].context, Some(400000));
+        assert_eq!(m[1].name, "no-name");
+        assert!(m[1].thinking.is_empty());
+        assert_eq!(m[2].description, "small");
+    }
+
+    #[test]
+    fn codex_models_send_the_account_header_and_fall_back_to_client_version_0() {
+        let mock = Mock::start(|r, _| {
+            if r.query().get("client_version").map(String::as_str) == Some("99.0.0") {
+                Resp::json(200, &json!({"models": []}))
+            } else {
+                Resp::json(200, &codex_catalog())
+            }
+        });
+        let s = MemorySecrets::default();
+        signed_in(&s, "tok", "ref", now() + 3600);
+        let m = list_models(&Connection::with_base_url(ProviderKind::Codex, &mock.url), &s).unwrap();
+        assert_eq!(m.len(), 3);
+        let reqs = mock.requests();
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs[0].path, "/models?client_version=99.0.0");
+        assert_eq!(reqs[1].path, "/models?client_version=0.0.0");
+        for r in &reqs {
+            assert_eq!(r.method, "GET");
+            assert_eq!(r.header("authorization"), Some("Bearer tok"));
+            assert_eq!(r.header("chatgpt-account-id"), Some("acct-1"));
+            assert_eq!(r.header("originator"), Some("rusty-inbox"));
+        }
+        // an error on the first version also falls through to the second
+        let mock = Mock::scripted(vec![Resp::text(500, "text/plain", "x"), Resp::json(200, &codex_catalog())]);
+        assert_eq!(list_models(&Connection::with_base_url(ProviderKind::Codex, &mock.url), &s).unwrap().len(), 3);
+        // both failing: the first failure is reported
+        let mock = Mock::scripted(vec![
+            Resp::json(500, &json!({"error": {"message": "down"}})),
+            Resp::json(500, &json!({"error": "other"})),
+        ]);
+        let e = list_models(&Connection::with_base_url(ProviderKind::Codex, &mock.url), &s).unwrap_err();
+        assert!(matches!(e, AiError::Http { status: 500, message } if message == "down"));
+    }
+
+    #[test]
+    fn codex_models_refresh_once_after_a_401() {
+        let new_access = jwt(now() + 7200, "acct-1", "plus", "eu", "me@example.com");
+        let na = new_access.clone();
+        let mock = Mock::start(move |r, _| {
+            if r.path == "/oauth/token" {
+                return Resp::json(200, &json!({"access_token": na, "refresh_token": "ref-2"}));
+            }
+            if r.header("authorization") == Some("Bearer stale-models") {
+                Resp::json(401, &json!({"error": {"message": "expired"}}))
+            } else {
+                Resp::json(200, &codex_catalog())
+            }
+        });
+        let s = MemorySecrets::default();
+        signed_in(&s, "stale-models", "ref-1", now() + 3600);
+        let m = with_issuer(&mock.url, || list_models(&Connection::with_base_url(ProviderKind::Codex, &mock.url), &s))
+            .unwrap();
+        assert_eq!(m.len(), 3);
+        assert_eq!(crate::codex::load_tokens(&s).unwrap().refresh_token, "ref-2");
+        // signed out: a clear message, no request
+        let e = list_models(&Connection::with_base_url(ProviderKind::Codex, &mock.url), &MemorySecrets::default())
+            .unwrap_err();
+        assert!(matches!(e, AiError::NotConfigured(_)));
+    }
+
+    #[test]
+    fn openai_list_keeps_chat_models_newest_first_with_levels() {
+        let mock = Mock::scripted(vec![Resp::json(
+            200,
+            &json!({"object": "list", "data": [
+                {"id": "text-embedding-3-large", "created": 9},
+                {"id": "gpt-4o", "created": 100},
+                {"id": "o3-mini", "created": 300},
+                {"id": "gpt-5", "created": 500},
+                {"id": "whisper-1", "created": 1},
+                {"id": "gpt-4o-mini-tts", "created": 400},
+                {"id": "gpt-4o-transcribe", "created": 400},
+                {"id": "gpt-image-1", "created": 400},
+                {"id": "dall-e-3", "created": 2},
+                {"id": "omni-moderation-latest", "created": 3},
+                {"id": "gpt-4o-realtime-preview", "created": 400},
+                {"id": "gpt-4o-audio-preview", "created": 400},
+                {"id": "gpt-4o-search-preview", "created": 400},
+                {"id": "babbage-002", "created": 4},
+                {"id": "davinci-002", "created": 4},
+                {"id": "gpt-3.5-turbo-instruct", "created": 5},
+                {"id": "gpt-5-chat-latest", "created": 450},
+                {"id": "o1-mini", "created": 200},
+                {"id": "o4-mini", "created": 350},
+                {"id": "gpt-6.1", "created": 600}
+            ]}),
+        )]);
+        let m = list_models(
+            &Connection::with_base_url(ProviderKind::OpenAI, &mock.url),
+            &keyed(ProviderKind::OpenAI, "sk-x"),
+        )
+        .unwrap();
+        let ids: Vec<&str> = m.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, ["gpt-6.1", "gpt-5", "gpt-5-chat-latest", "o4-mini", "o3-mini", "o1-mini", "gpt-4o"]);
+        let by = |id: &str| m.iter().find(|m| m.id == id).unwrap();
+        assert_eq!(by("gpt-5").thinking, ["minimal", "low", "medium", "high"]);
+        assert_eq!(by("o3-mini").thinking, ["low", "medium", "high"]);
+        assert!(by("gpt-4o").thinking.is_empty());
+        assert!(by("gpt-5-chat-latest").thinking.is_empty());
+        assert!(by("o1-mini").thinking.is_empty());
+        let r = &mock.requests()[0];
+        assert_eq!(r.path, "/models");
+        assert_eq!(r.header("authorization"), Some("Bearer sk-x"));
+        // no key: no request
+        let e = list_models(&Connection::with_base_url(ProviderKind::OpenAI, &mock.url), &MemorySecrets::default())
+            .unwrap_err();
+        assert!(matches!(e, AiError::NotConfigured(_)));
+        assert_eq!(mock.requests().len(), 1);
+    }
+
+    #[test]
+    fn anthropic_list_keeps_the_order_and_levels_by_family() {
+        let mock = Mock::scripted(vec![Resp::json(
+            200,
+            &json!({"data": [
+            {"type": "model", "id": "claude-opus-4-1", "display_name": "Claude Opus 4.1", "created_at": "2025-08-05T00:00:00Z"},
+            {"type": "model", "id": "claude-3-7-sonnet-20250219", "display_name": "Claude Sonnet 3.7", "created_at": "2025-02-19T00:00:00Z"},
+            {"type": "model", "id": "claude-3-5-haiku-20241022", "display_name": "Claude Haiku 3.5"},
+            {"type": "model", "id": "claude-haiku-4-5", "display_name": "Claude Haiku 4.5", "max_input_tokens": 200000}
+        ], "has_more": false}),
+        )]);
+        let m = list_models(
+            &Connection::with_base_url(ProviderKind::Anthropic, &mock.url),
+            &keyed(ProviderKind::Anthropic, "sk-ant"),
+        )
+        .unwrap();
+        assert_eq!(
+            m.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            ["claude-opus-4-1", "claude-3-7-sonnet-20250219", "claude-3-5-haiku-20241022", "claude-haiku-4-5"]
+        );
+        assert_eq!(m[0].name, "Claude Opus 4.1");
+        assert_eq!(m[0].thinking, ["off", "low", "medium", "high"]);
+        assert!(m[1].thinking.is_empty() && m[2].thinking.is_empty());
+        assert_eq!(m[3].thinking.len(), 4);
+        assert_eq!(m[3].context, Some(200000));
+        let r = &mock.requests()[0];
+        assert_eq!(r.path, "/models?limit=1000");
+        assert_eq!(r.header("x-api-key"), Some("sk-ant"));
+        assert_eq!(r.header("anthropic-version"), Some("2023-06-01"));
+        let e = list_models(&Connection::with_base_url(ProviderKind::Anthropic, &mock.url), &MemorySecrets::default())
+            .unwrap_err();
+        assert!(matches!(e, AiError::NotConfigured(_)));
+    }
+
+    #[test]
+    fn ollama_tags_with_capabilities_need_no_show_calls() {
+        let mock = Mock::scripted(vec![Resp::json(
+            200,
+            &json!({"models": [
+                {"name": "gpt-oss:20b", "model": "gpt-oss:20b", "details": {"parameter_size": "20.9B", "family": "gptoss", "quantization_level": "MXFP4"},
+                 "capabilities": ["completion", "tools", "thinking"]},
+                {"name": "qwen3:8b", "details": {"parameter_size": "8.2B", "family": "qwen3"}, "capabilities": ["completion", "thinking"]},
+                {"name": "llama3.2:3b", "details": {"parameter_size": "3.2B", "family": "llama"}, "capabilities": ["completion", "tools"]},
+                {"name": "nomic-embed-text:latest", "capabilities": ["embedding"]}
+            ]}),
+        )]);
+        let m = list_models(&Connection::with_base_url(ProviderKind::Ollama, &mock.url), &MemorySecrets::default())
+            .unwrap();
+        assert_eq!(m.len(), 3);
+        assert_eq!(m[0].thinking, ["low", "medium", "high"]);
+        assert_eq!(m[0].description, "20.9B · gptoss · MXFP4");
+        assert_eq!(m[1].thinking, ["off", "on"]);
+        assert!(m[2].thinking.is_empty());
+        assert_eq!(m[2].description, "3.2B · llama");
+        let reqs = mock.requests();
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs[0].path, "/api/tags");
+        assert!(reqs[0].header("authorization").is_none());
+    }
+
+    #[test]
+    fn ollama_asks_show_for_servers_without_capabilities_and_sends_the_cloud_key() {
+        let mock = Mock::start(|r, _| match r.path.as_str() {
+            "/api/tags" => {
+                Resp::json(200, &json!({"models": [{"name": "qwen3:8b"}, {"name": "old-model"}, {"name": "embed"}]}))
+            }
+            "/api/show" => match r.json()["model"].as_str().unwrap() {
+                "qwen3:8b" => Resp::json(
+                    200,
+                    &json!({"capabilities": ["completion", "thinking"], "model_info": {"qwen3.context_length": 40960}}),
+                ),
+                "embed" => Resp::json(200, &json!({"capabilities": ["embedding"]})),
+                _ => Resp::json(200, &json!({"details": {}})),
+            },
+            p => panic!("{p}"),
+        });
+        let m = list_models(
+            &Connection::with_base_url(ProviderKind::Ollama, &mock.url),
+            &keyed(ProviderKind::Ollama, "okey"),
+        )
+        .unwrap();
+        assert_eq!(m.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["qwen3:8b", "old-model"]);
+        assert_eq!(m[0].thinking, ["off", "on"]);
+        assert_eq!(m[0].context, Some(40960));
+        assert!(m[1].thinking.is_empty());
+        let reqs = mock.requests();
+        assert_eq!(reqs.len(), 4);
+        assert!(reqs.iter().all(|r| r.header("authorization") == Some("Bearer okey")));
+    }
+
+    #[test]
+    fn ollama_show_is_capped_at_40_models() {
+        let names: Vec<Value> = (0..55).map(|i| json!({"name": format!("m{i}")})).collect();
+        let mock = Mock::start(move |r, _| {
+            if r.path == "/api/tags" {
+                Resp::json(200, &json!({"models": names}))
+            } else {
+                Resp::json(200, &json!({"capabilities": ["completion"]}))
+            }
+        });
+        let m = list_models(&Connection::with_base_url(ProviderKind::Ollama, &mock.url), &MemorySecrets::default())
+            .unwrap();
+        assert_eq!(m.len(), 55);
+        assert_eq!(mock.requests().len(), 1 + 40);
+    }
+
+    #[test]
+    fn list_errors_keep_the_providers_message() {
+        let mock = Mock::scripted(vec![Resp::json(401, &json!({"error": {"message": "Invalid API key"}}))]);
+        let e = list_models(
+            &Connection::with_base_url(ProviderKind::OpenAI, &mock.url),
+            &keyed(ProviderKind::OpenAI, "bad"),
+        )
+        .unwrap_err();
+        assert!(matches!(e, AiError::Auth(m) if m == "Invalid API key"));
     }
 }
