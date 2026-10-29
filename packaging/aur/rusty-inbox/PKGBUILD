@@ -1,6 +1,6 @@
 # Maintainer: Karem Aboelmakarem <karem505 at github>
 pkgname=rusty-inbox
-pkgver=0.1.4
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="Fast native email client: Rust IMAP/SMTP engine, Qt 6 QML interface, Smart Inbox, undo send, keyboard-first"
 arch=('x86_64' 'aarch64')
@@ -11,7 +11,7 @@ makedepends=('cargo' 'clang')
 optdepends=('xdg-utils: open links and make Rusty Inbox the mailto handler')
 options=('!lto')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/karem505/rusty-inbox/archive/v$pkgver.tar.gz")
-sha256sums=('7a53189b4a27ff0e333d3e41cd5fd88c51a9657a9affbaedf4947dde8167e632')
+sha256sums=('1947444426100725c8dbe6739352bc92aa18c743febad3de3f7825fbca9ce05c')
 
 prepare() {
   cd "$pkgname-$pkgver"
