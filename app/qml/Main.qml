@@ -681,9 +681,55 @@ ApplicationWindow {
             if (win.stressN % 25 === 0) { const c = Object.assign({}, threadList.collapsed); c.notifications = !c.notifications; threadList.collapsed = c }
         }
     }
+    // AI(B): `--autotest-ai` runs only the AI pass below (the regular pass is skipped)
+    readonly property bool autotestAi: Qt.application.arguments.indexOf("--autotest-ai") >= 0
+    readonly property bool autotestAiLight: Qt.application.arguments.indexOf("--autotest-ai-light") >= 0
+    property int aiStepB: 0
+    function shotB(name, then) {     // Qt 6.12: the window's root item has no QML engine, grab the page
+        page.grabToImage(r => { r.saveToFile(autotestDir + "/" + name + ".png"); console.warn("AUTOTEST shot", name); if (then) then() })
+    }
+    Timer {
+        id: aiScriptB
+        running: win.autotestDir !== "" && (win.autotestAi || win.autotestAiLight)
+        interval: 1400
+        repeat: true
+        onTriggered: {
+            const pg = settingsPage.aiPage
+            switch (win.aiStepB++) {
+            case 0: win.openSettings("ai"); pg.openLinks = false; settingsPage.save("themeMode", win.autotestAiLight ? "light" : "dark"); settingsPage.save("aiEnabled", true); break
+            case 1: win.shotB("ai-1-overview-empty"); break
+            case 2: pg.autotestUse("custom", "http://127.0.0.1:18765/v1"); break
+            case 3: pg.autotestScroll("model", 380); break
+            case 4: win.shotB("ai-2-custom-connected"); break
+            case 5: win.log("ai real popup opens: " + pg.autotestPopup()); pg.autotestOpenPicker("mt"); break
+            case 6: win.log("ai picker rows " + JSON.stringify(pg.modelRows.map(r => r.id))); win.shotB("ai-3-model-picker-search"); break
+            case 7: pg.autotestOpenPicker(""); break
+            case 8: pg.pickModel("mock-thinker"); break
+            case 9: pg.autotestThinking("low"); break
+            case 10: pg.autotestClosePicker(); pg.autotestScroll("model", 120); break
+            case 11: win.log("ai chosen " + JSON.stringify([settingsPage.prefs.aiProvider, settingsPage.prefs.aiModel, settingsPage.prefs.aiThinking])); win.shotB("ai-4-model-thinking"); break
+            case 12: pg.autotestScroll("thinking", 100); pg.autotestTest(); break
+            case 13: break
+            case 14: win.log("ai test " + pg.testState + " " + pg.testReply + " " + pg.testError); win.shotB("ai-5-test-connection"); break
+            case 15: pg.autotestUse("custom", "http://127.0.0.1:9/v1"); break
+            case 16: pg.autotestScroll("model", 60); pg.autotestOpenPicker("x"); break
+            case 17: win.log("ai models error: " + pg.modelsState + " " + pg.modelsError); win.shotB("ai-6-model-list-error"); pg.autotestClosePicker(); break
+            case 18: pg.autotestUse("custom", "http://127.0.0.1:18765/v1"); break
+            case 19: pg.autotestUse("codex", ""); settingsPage.scrollTo(0); break
+            case 20: pg.fakeSignIn("browser"); pg.autotestScroll("provider", 0); break
+            case 21: win.shotB("ai-7-chatgpt-waiting"); pg.fakeSignIn("device"); break
+            case 22: win.shotB("ai-8-chatgpt-device-code"); pg.fakeSignIn("failed"); break
+            case 23: win.shotB("ai-9-chatgpt-failed"); settingsPage.save("aiSmartFilter", true); settingsPage.save("aiFollowUps", true); settingsPage.save("aiBriefing", true); pg.autotestScroll("language", 0); break
+            case 24: win.shotB("ai-10-features-reading"); pg.autotestScroll("organize", 0); break
+            case 25: win.shotB("ai-11-features-organizing"); pg.toggleExcluded(settingsPage.accounts[0].email); pg.autotestScroll("excluded", 0); break
+            case 26: win.shotB("ai-12-excluded-privacy"); break
+            case 27: console.warn("AUTOTEST end ai"); Qt.quit(); break
+            }
+        }
+    }
     Timer {
         id: script
-        running: win.autotestDir !== ""
+        running: win.autotestDir !== "" && !win.autotestAi && !win.autotestAiLight
         interval: 1500
         repeat: true
         onTriggered: {
