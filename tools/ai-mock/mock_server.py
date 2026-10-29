@@ -97,7 +97,11 @@ def answer_for(body):
     if dynamic is not None:
         return dynamic
     for r in replies():
-        if r.get("match", "\0") in system or r.get("match_user", "\0") in user:
+        # both given: both must match (e.g. one task on one particular message)
+        if "match" in r and "match_user" in r:
+            if r["match"] in system and r["match_user"] in user:
+                return r["answer"]
+        elif r.get("match", "\0") in system or r.get("match_user", "\0") in user:
             return r["answer"]
     return "Mock answer to: " + user[:120]
 

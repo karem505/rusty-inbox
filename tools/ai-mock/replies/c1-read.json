@@ -1,34 +1,35 @@
 [
- {
-  "match_user": "Click here to claim your prize",
-  "answer": "{\"risk\": \"high\", \"reasons\": [\"Unsolicited message about a prize you never entered\", \"Urgent call to click a link to claim it\", \"The sender's domain (prize-center.example) has no connection to any service you use\"]}"
- },
- {
-  "match": "TASK=phishing-check",
-  "answer": "{\"risk\": \"low\", \"reasons\": [\"Sender and reply address share the same domain\", \"No links lead to a different site than they show\", \"Ordinary business wording with no requests for passwords or payments\"]}"
- },
- {
-  "match": "TASK=summarize-thread",
-  "answer": "{\"summary\": \"Maya shared the v1.0 launch plan and you moved the packaging work a day earlier. She now confirms the announcement should go out on Tuesday and added a section with the benchmark numbers.\", \"actions\": [{\"task\": \"Review the new benchmark section in the launch plan\", \"owner\": \"you\", \"due\": \"Friday\"}, {\"task\": \"Prepare the Flatpak and AUR packages\", \"owner\": \"you\", \"due\": \"2026-10-30\"}, {\"task\": \"Confirm the Tuesday announcement with the team\", \"owner\": \"Maya\", \"due\": \"\"}]}"
- },
- {
-  "match": "TASK=translate-message target=Arabic",
-  "answer": "الثلاثاء. أيام الاثنين مزدحمة.\n\nأضفت أيضاً قسماً لأرقام الأداء، فهي أقوى جزء في القصة: يفتح البريد الوارد في جزء من الثانية والتطبيق كله ملف تنفيذي صغير.\n\nشكراً على السرعة في الرد!\n\nمايا"
- },
- {
-  "match": "TASK=translate-message target=English",
-  "answer": "Tuesday. Mondays are noisy.\n\nI also added a section for the benchmark numbers; they are the strongest part of the story.\n\nThanks for the quick turnaround!\n\nMaya"
- },
- {
-  "match": "TASK=translate-message",
-  "answer": "Mardi. Les lundis sont bruyants.\n\nMerci pour la réponse rapide !"
- },
- {
-  "match": "TASK=smart-replies",
-  "answer": "{\"replies\": [\"Tuesday works for me. I'll start on the announcement today.\", \"Thanks Maya! Can you send me the final benchmark section before we publish?\", \"Let me check the packaging timeline once more and get back to you tomorrow.\"]}"
- },
- {
-  "match": "TASK=summarize-attachment",
-  "answer": "- Launch plan for v1.0 with a week-by-week timeline: release notes, AUR and Flatpak packages, demo video.\n- Announcement is planned for Tuesday; packaging starts a day earlier than first scheduled.\n- Owners are named per item: Maya (announcement, press kit), Alex (packages, release notes).\n- A benchmark section lists cold-start time and memory use as the main selling points."
- }
+  {
+    "match_user": "Click here to claim your prize",
+    "answer": "{\"risk\": \"high\", \"reasons\": [\"Unsolicited message about a prize you never entered\", \"Urgent call to click a link to claim it\", \"The sender's domain (prize-center.example) has no connection to any service you use\"]}",
+    "match": "TASK=phishing-check"
+  },
+  {
+    "match": "TASK=phishing-check",
+    "answer": "{\"risk\": \"low\", \"reasons\": [\"Sender and reply address share the same domain\", \"No links lead to a different site than they show\", \"Ordinary business wording with no requests for passwords or payments\"]}"
+  },
+  {
+    "match": "TASK=summarize-thread",
+    "answer": "{\"summary\": \"Maya shared the v1.0 launch plan and you moved the packaging work a day earlier. She now confirms the announcement should go out on Tuesday and added a section with the benchmark numbers.\", \"actions\": [{\"task\": \"Review the new benchmark section in the launch plan\", \"owner\": \"you\", \"due\": \"Friday\"}, {\"task\": \"Prepare the Flatpak and AUR packages\", \"owner\": \"you\", \"due\": \"2026-10-30\"}, {\"task\": \"Confirm the Tuesday announcement with the team\", \"owner\": \"Maya\", \"due\": \"\"}]}"
+  },
+  {
+    "match": "TASK=translate-message target=Arabic",
+    "answer": "الثلاثاء. أيام الاثنين مزدحمة.\n\nأضفت أيضاً قسماً لأرقام الأداء، فهي أقوى جزء في القصة: يفتح البريد الوارد في جزء من الثانية والتطبيق كله ملف تنفيذي صغير.\n\nشكراً على السرعة في الرد!\n\nمايا"
+  },
+  {
+    "match": "TASK=translate-message target=English",
+    "answer": "Tuesday. Mondays are noisy.\n\nI also added a section for the benchmark numbers; they are the strongest part of the story.\n\nThanks for the quick turnaround!\n\nMaya"
+  },
+  {
+    "match": "TASK=translate-message",
+    "answer": "Mardi. Les lundis sont bruyants.\n\nMerci pour la réponse rapide !"
+  },
+  {
+    "match": "TASK=smart-replies",
+    "answer": "{\"replies\": [\"Tuesday works for me. I'll start on the announcement today.\", \"Thanks Maya! Can you send me the final benchmark section before we publish?\", \"Let me check the packaging timeline once more and get back to you tomorrow.\"]}"
+  },
+  {
+    "match": "TASK=summarize-attachment",
+    "answer": "- Launch plan for v1.0 with a week-by-week timeline: release notes, AUR and Flatpak packages, demo video.\n- Announcement is planned for Tuesday; packaging starts a day earlier than first scheduled.\n- Owners are named per item: Maya (announcement, press kit), Alex (packages, release notes).\n- A benchmark section lists cold-start time and memory use as the main selling points."
+  }
 ]
