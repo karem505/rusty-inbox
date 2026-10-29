@@ -5,6 +5,7 @@ use crate::{AiError, AiResult};
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Read};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::time::Duration;
 
 pub const USER_AGENT: &str = concat!("RustyInbox/", env!("CARGO_PKG_VERSION"));
@@ -54,19 +55,30 @@ pub fn error_message(body: &str) -> String {
     short(body)
 }
 
-fn check(resp: ureq::http::Response<ureq::Body>) -> AiResult<Ok200> {
+/// Map a failed HTTP status and its message to the [`AiError`] the user sees.
+pub fn status_error(status: u16, message: String) -> AiError {
+    match status {
+        401 | 403 => AiError::Auth(message),
+        429 => AiError::RateLimited(message),
+        _ => AiError::Http { status, message },
+    }
+}
+
+/// An error together with the HTTP status that caused it (0 = no response at all).
+pub type StatusErr = (u16, AiError);
+
+fn check(resp: ureq::http::Response<ureq::Body>) -> Result<Ok200, StatusErr> {
     let status = resp.status().as_u16();
     let mut body = resp.into_body();
     if (200..300).contains(&status) {
         return Ok(Ok200 { body: Box::new(body.into_reader()) });
     }
     let text = body.read_to_string().unwrap_or_default();
-    let message = error_message(&text);
-    Err(match status {
-        401 | 403 => AiError::Auth(message),
-        429 => AiError::RateLimited(message),
-        _ => AiError::Http { status, message },
-    })
+    Err((status, status_error(status, error_message(&text))))
+}
+
+fn drop_status((_, e): StatusErr) -> AiError {
+    e
 }
 
 pub fn get(url: &str, headers: Headers) -> AiResult<Ok200> {
@@ -74,7 +86,7 @@ pub fn get(url: &str, headers: Headers) -> AiResult<Ok200> {
     for (k, v) in headers {
         r = r.header(*k, v);
     }
-    check(r.call().map_err(map_err)?)
+    check(r.call().map_err(map_err)?).map_err(drop_status)
 }
 
 pub fn get_json(url: &str, headers: Headers) -> AiResult<Value> {
@@ -82,11 +94,17 @@ pub fn get_json(url: &str, headers: Headers) -> AiResult<Value> {
 }
 
 pub fn post_json(url: &str, headers: Headers, body: &Value) -> AiResult<Ok200> {
+    post_json_status(url, headers, body).map_err(drop_status)
+}
+
+/// Like [`post_json`], but the error carries the HTTP status (callers that react to a specific
+/// status: Codex 401 → refresh, device-code 403/404 → pending).
+pub fn post_json_status(url: &str, headers: Headers, body: &Value) -> Result<Ok200, StatusErr> {
     let mut r = agent(Duration::from_secs(300)).post(url).header("Content-Type", "application/json");
     for (k, v) in headers {
         r = r.header(*k, v);
     }
-    check(r.send(body.to_string()).map_err(map_err)?)
+    check(r.send(body.to_string()).map_err(|e| (0, map_err(e)))?)
 }
 
 pub fn post_form(url: &str, headers: Headers, form: &[(&str, &str)]) -> AiResult<Ok200> {
@@ -96,7 +114,7 @@ pub fn post_form(url: &str, headers: Headers, form: &[(&str, &str)]) -> AiResult
     for (k, v) in headers {
         r = r.header(*k, v);
     }
-    check(r.send(body).map_err(map_err)?)
+    check(r.send(body).map_err(map_err)?).map_err(drop_status)
 }
 
 pub fn read_json(mut r: Ok200) -> AiResult<Value> {
@@ -118,21 +136,42 @@ pub fn urlencode(s: &str) -> String {
 }
 
 /// Call `on_line` for every line of a streamed body until it ends, `on_line` returns false, or
-/// `cancel` is set (then `Err(Cancelled)`).
+/// `cancel` is set (then `Err(Cancelled)`). The body is read on a helper thread so a cancel takes
+/// effect within ~50 ms even while the server is silent (the thread ends when the connection does).
 pub fn for_each_line(r: Ok200, cancel: &AtomicBool, mut on_line: impl FnMut(&str) -> AiResult<bool>) -> AiResult<()> {
-    let mut reader = BufReader::new(r.body);
-    let mut line = String::new();
+    let (tx, rx) = mpsc::channel::<Result<String, String>>();
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(r.body);
+        let mut buf = Vec::new();
+        loop {
+            buf.clear();
+            match reader.read_until(b'\n', &mut buf) {
+                Ok(0) => break,
+                Ok(_) => {
+                    if tx.send(Ok(String::from_utf8_lossy(&buf).into_owned())).is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(e.to_string()));
+                    break;
+                }
+            }
+        }
+    });
     loop {
         if cancel.load(Ordering::Relaxed) {
             return Err(AiError::Cancelled);
         }
-        line.clear();
-        let n = reader.read_line(&mut line).map_err(|e| AiError::Network(e.to_string()))?;
-        if n == 0 {
-            return Ok(());
-        }
-        if !on_line(line.trim_end_matches(['\r', '\n']))? {
-            return Ok(());
+        match rx.recv_timeout(Duration::from_millis(50)) {
+            Ok(Ok(line)) => {
+                if !on_line(line.trim_end_matches(['\r', '\n']))? {
+                    return Ok(());
+                }
+            }
+            Ok(Err(e)) => return Err(AiError::Network(e)),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
         }
     }
 }
