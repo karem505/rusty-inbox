@@ -1,0 +1,19 @@
+[package]
+name = "rusty-inbox-ai"
+description = "AI providers for Rusty Inbox: Ollama, OpenRouter, Anthropic, OpenAI, ChatGPT (Codex) sign-in, models, chat and the mail features built on them"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+sha2 = "0.10"
+base64 = "0.22"
+getrandom = "0.3"
+pdf-extract = "0.9"
+zip = { version = "2", default-features = false, features = ["deflate"] }

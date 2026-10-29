@@ -1,6 +1,6 @@
 use cxx_qt_build::{CxxQtBuilder, QmlFile, QmlModule};
 
-const ICONS: [&str; 49] = [
+const ICONS: [&str; 50] = [
     "account",
     "archive",
     "back",
@@ -48,6 +48,7 @@ const ICONS: [&str; 49] = [
     "template",
     "trash",
     "undo",
+    "sparkle",
     "unread",
     "update",
 ];
@@ -74,12 +75,17 @@ fn main() {
         "qml/Composer.qml".into(),
         "qml/TickBox.qml".into(),
         "qml/ContactCard.qml".into(),
+        // AI (docs/ai/DESIGN.md): B = AiSettingsPage, C1 = AiComposerTools + AiReaderPanel, C2 = AiBriefing
+        "qml/AiSettingsPage.qml".into(),
+        "qml/AiComposerTools.qml".into(),
+        "qml/AiReaderPanel.qml".into(),
+        "qml/AiBriefing.qml".into(),
     ]))
     .qrc_resources(icons)
     .qt_module("Quick")
     .qt_module("QuickControls2")
     .qt_module("WebEngineQuick")
-    .files(["src/bridge.rs"])
+    .files(["src/bridge.rs", "src/ai_settings.rs", "src/assistant.rs", "src/ai_inbox.rs"])
     .cpp_file("cpp/webengine_init.cpp")
     .include_dir("cpp")
     .build();

@@ -1,3 +1,7 @@
+mod ai;
+mod ai_inbox;
+mod ai_settings;
+mod assistant;
 mod bridge;
 mod engine;
 mod instance;

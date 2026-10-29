@@ -30,6 +30,27 @@ pub fn defaults() -> Value {
         "autoUpdateCheck": true,     // look for a new release in the background
         "updateCheckDays": 1,        // how often: every day or every week
         "autoInstallUpdates": false, // download and apply it too (AppImage / binary installs)
+        // AI (docs/ai/DESIGN.md); API keys and the ChatGPT sign-in are in the secret store, not here
+        "aiEnabled": false,
+        "aiProvider": "",            // codex | openai | anthropic | openrouter | ollama | custom
+        "aiModel": "",               // id from the provider's live list
+        "aiThinking": "",            // "" = model default, else one of the model's levels
+        "aiOllamaUrl": "http://localhost:11434", // or https://ollama.com (with a key)
+        "aiCustomUrl": "",           // OpenAI-compatible base URL, e.g. http://localhost:1234/v1
+        "aiLanguage": "auto",        // auto (language of the email) | en | ar
+        "aiExcluded": "",            // accounts never sent to the provider, comma separated
+        "aiComposeTools": true,      // 1-5: proofread, rewrite, translate, write for me, subject
+        "aiReadTools": true,         // 6-10, 16: summary, actions, translate, replies, attachments, phishing
+        "aiAutoSummary": false,      // summarize long conversations when they open
+        "aiAutoReplies": false,      // suggest replies when a conversation opens
+        "aiAutoPhishing": false,     // check mail from new senders when it opens
+        "aiSmartFilter": false,      // 11: classify new mail the rules are unsure about
+        "aiNeedsReply": false,       // 12: mark new mail that expects an answer
+        "aiFollowUps": false,        // 13: sent mail that got no answer
+        "aiFollowUpDays": 3,
+        "aiSearch": true,            // 14: plain-words search
+        "aiBriefing": false,         // 15: daily briefing
+        "aiBriefingHour": 8,
     })
 }
 
@@ -42,6 +63,18 @@ pub fn choices(key: &str) -> Option<Vec<Value>> {
         "themeMode" => v(&[json!("system"), json!("light"), json!("dark")]),
         "density" => v(&[json!("comfortable"), json!("compact")]),
         "updateCheckDays" => v(&[json!(1), json!(7)]),
+        "aiProvider" => v(&[
+            json!(""),
+            json!("codex"),
+            json!("openai"),
+            json!("anthropic"),
+            json!("openrouter"),
+            json!("ollama"),
+            json!("custom"),
+        ]),
+        "aiLanguage" => v(&[json!("auto"), json!("en"), json!("ar")]),
+        "aiFollowUpDays" => v(&[json!(2), json!(3), json!(5), json!(7), json!(14)]),
+        "aiBriefingHour" => v(&(5..=12).map(|h| json!(h)).collect::<Vec<_>>()),
         _ => None,
     }
 }
