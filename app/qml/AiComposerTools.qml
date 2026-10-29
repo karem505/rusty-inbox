@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.impl
 import QtQuick.Layouts
+import org.rustyinbox
 
 // Writing assistant of the composer (features 1-5): a menu (proofread, rewrite, translate, write
 // for me, suggest subject) and a result sheet over the bottom of the editor. Nothing changes the
@@ -134,6 +135,8 @@ Item {
         const source = (composer && composer.draft && composer.draft.sourceMessage) || 0
         root.run("write", qsTr("Write for me"), () => ai.write_for_me(instruction, source, root.account()))
     }
+    // scripted check: a call that fails, to see the error state
+    function failForTest() { run("rewrite", qsTr("Rewrite: test"), () => ai.rewrite("x", "bogus", account())) }
     function retry() { if (retryFn) retryFn() }
     function apply(mode) {
         composer.applyOwn(root.resultText, mode)

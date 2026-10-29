@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.impl
+import org.rustyinbox
 
 // Reader AI panel (features 6-10 and 16): a strip of actions above the conversation (Summarize,
 // Translate, Suggest replies, Check for phishing) and the result cards below it. Every card has a
@@ -30,7 +31,8 @@ Item {
     })
     readonly property bool showing: aiOn || anyShown
 
-    height: showing ? col.implicitHeight : 0
+    property real maxHeight: 420
+    height: showing ? Math.min(col.implicitHeight, maxHeight) : 0
     visible: height > 0
     clip: true
     Behavior on height { NumberAnimation { duration: Theme.normal; easing.type: Theme.easing } }
@@ -197,6 +199,14 @@ Item {
         AiButton { id: retryBtn; text: qsTr("Retry"); primary: true; anchors.verticalCenter: parent.verticalCenter; onClicked: parent.retry() }
     }
 
+    Flickable {
+        anchors.fill: parent
+        contentWidth: width
+        contentHeight: col.implicitHeight
+        interactive: contentHeight > height + 1
+        boundsBehavior: Flickable.StopAtBounds
+        clip: true
+        ScrollBar.vertical: ScrollBar {}
     Column {
         id: col
         width: parent.width
@@ -268,7 +278,7 @@ Item {
                                     width: parent.width
                                     text: act.modelData.task
                                     wrapMode: Text.Wrap
-                                    font.pixelSize: 13.5; color: Theme.text
+                                    font.pixelSize: 14; color: Theme.text
                                     horizontalAlignment: root.isRtl(text) ? Text.AlignRight : Text.AlignLeft
                                 }
                                 Text {
@@ -344,7 +354,7 @@ Item {
                                 width: parent.width - 25
                                 text: chip.modelData
                                 wrapMode: Text.Wrap
-                                font.pixelSize: 13.5; color: Theme.text
+                                font.pixelSize: 14; color: Theme.text
                                 horizontalAlignment: root.isRtl(text) ? Text.AlignRight : Text.AlignLeft
                             }
                         }
@@ -384,7 +394,7 @@ Item {
                             width: parent.width - 14
                             text: reason.modelData
                             wrapMode: Text.Wrap
-                            font.pixelSize: 13.5; color: Theme.text
+                            font.pixelSize: 14; color: Theme.text
                             horizontalAlignment: root.isRtl(text) ? Text.AlignRight : Text.AlignLeft
                         }
                     }
@@ -394,7 +404,7 @@ Item {
                     width: parent.width
                     text: qsTr("Based on the sender, links and wording. Server checks (SPF, DKIM) are not available here.")
                     wrapMode: Text.Wrap
-                    font.pixelSize: 11.5; color: Theme.textMuted
+                    font.pixelSize: 11; color: Theme.textMuted
                 }
             }
         }
@@ -416,7 +426,7 @@ Item {
                     clip: true
                     text: (root.st.attachment || {}).partial || qsTr("Reading the file…")
                     wrapMode: Text.Wrap
-                    font.pixelSize: 13.5; color: Theme.textSubtle
+                    font.pixelSize: 14; color: Theme.textSubtle
                     horizontalAlignment: root.isRtl(text) ? Text.AlignRight : Text.AlignLeft
                 }
                 Failure { visible: root.stateOf("attachment") === "error"; message: (root.st.attachment || {}).error || ""; onRetry: root.summarizeAttachment(root.st.attachment.attId, root.st.attachment.name) }
@@ -425,7 +435,7 @@ Item {
                     width: parent.width
                     text: root.stateOf("attachment") === "done" ? root.st.attachment.data.text : ""
                     wrapMode: Text.Wrap
-                    font.pixelSize: 13.5
+                    font.pixelSize: 14
                     lineHeight: 1.2
                     color: Theme.text
                     horizontalAlignment: root.isRtl(text) ? Text.AlignRight : Text.AlignLeft
@@ -434,5 +444,6 @@ Item {
         }
 
         Item { width: 1; height: root.showing ? 4 : 0 }
+    }
     }
 }

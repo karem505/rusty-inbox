@@ -37,7 +37,7 @@ Rectangle {
         Text {
             anchors.verticalCenter: parent.verticalCenter
             text: pill.text
-            font.pixelSize: 12.5
+            font.pixelSize: 12
             color: pill.active ? Theme.accent : Theme.textSubtle
         }
     }

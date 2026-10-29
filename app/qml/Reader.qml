@@ -291,6 +291,7 @@ Rectangle {
         width: parent.width
         z: 1
         listName: root.listName
+        maxHeight: Math.max(180, root.height * 0.55)
         onSmartReply: (text) => root.smartReply(text)
         onTranslationReady: (tr) => { root.translated = tr; root.showTr = true; aiPanel.trShown = true; root.rerender() }
         onToggleTranslation: { root.showTr = !root.showTr; aiPanel.trShown = root.showTr; root.rerender() }
