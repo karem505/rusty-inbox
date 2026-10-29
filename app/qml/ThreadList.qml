@@ -37,6 +37,21 @@ Rectangle {
     signal action(string name, var ids)
     signal snooze(var ids, Item anchor)
 
+    // AI(C2): "Reply" / "No reply" marks, "Not needed", and the search field (plain words with ?)
+    property bool aiReplyMark: false
+    property bool aiFollowMark: false
+    property bool searchOpen: false
+    property bool askAvailable: false
+    property bool asking: false
+    property string askError: ""
+    readonly property bool searchFocused: searchBar.inputFocused
+    property alias searchText: searchBar.text
+    signal dismissAi(int id)
+    signal openSearch()
+    signal submitSearch(string text, bool ask)
+    signal closeSearch()
+    function focusSearch() { searchBar.focusInput() }
+
     readonly property var groupOrder: ["pinned", "personal", "invitations", "notifications", "newsletters"]
     readonly property var groupLabel: ({
         pinned: qsTr("Pinned"), personal: qsTr("People"), invitations: qsTr("Invitations"),
@@ -221,6 +236,7 @@ Rectangle {
                 tip: root.showDone ? qsTr("Hide Done mail (Shift+E)") : qsTr("Show Done mail too (Shift+E)")
                 onClicked: root.toggleShowDone()
             }
+            IconButton { objectName: "searchButton"; icon: "search"; active: root.searchOpen; tip: qsTr("Search (/)"); onClicked: root.searchOpen ? root.closeSearch() : root.openSearch() }
             IconButton { objectName: "selectButton"; icon: "select"; tip: qsTr("Select (X)"); onClicked: root.selectMode = true }
             IconButton { objectName: "selectAllButton"; icon: "checkbox"; tip: qsTr("Select all (Ctrl+A)"); onClicked: root.selectAll() }
         }
@@ -280,9 +296,25 @@ Rectangle {
         }
     }
 
+    AiSearchBar {
+        id: searchBar
+        anchors.top: bulk.bottom
+        width: parent.width
+        height: root.searchOpen ? implicitHeight : 0
+        visible: height > 0
+        Behavior on height { NumberAnimation { duration: Theme.normal; easing.type: Theme.easing } }
+        askAvailable: root.askAvailable
+        busy: root.asking
+        error: root.askError
+        z: 1
+        onSubmit: (text, ask) => root.submitSearch(text, ask)
+        onClosed: root.closeSearch()
+        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.border }
+    }
+
     ListView {
         id: list
-        anchors.top: bulk.bottom
+        anchors.top: searchBar.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -376,6 +408,15 @@ Rectangle {
             required property bool unread
             required property bool pinned
             required property bool done
+            required property bool needsReply
+            required property string aiReason
+            required property bool followUp
+            required property string awaiting
+            // AI(C2): what the Reply / No reply mark says
+            readonly property bool replyMark: root.aiReplyMark && needsReply
+            readonly property bool followMark: root.aiFollowMark && followUp && !replyMark
+            readonly property string aiTip: replyMark ? (aiReason !== "" ? aiReason : qsTr("Probably needs your answer"))
+                                                      : (followMark ? (awaiting !== "" ? qsTr("Waiting for: %1").arg(awaiting) : qsTr("Sent mail waiting for an answer")) : "")
 
             readonly property bool isCollapsed: root.collapsed[group] === true
             readonly property bool isSelected: root.selected[tid] === true
@@ -471,6 +512,10 @@ Rectangle {
                 anchors.rightMargin: 14
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 3
+                HoverHandler { id: contentHover }
+                ToolTip.visible: contentHover.hovered && row.aiTip !== ""
+                ToolTip.delay: 500
+                ToolTip.text: row.aiTip
 
                 Item {
                     width: parent.width
@@ -490,6 +535,25 @@ Rectangle {
                         spacing: 6
                         opacity: hover.hovered ? 0 : 1
                         Behavior on opacity { NumberAnimation { duration: Theme.fast } }
+                        Rectangle {
+                            objectName: "aiMark"
+                            visible: row.replyMark || row.followMark
+                            anchors.verticalCenter: parent.verticalCenter
+                            height: 18
+                            width: markText.implicitWidth + 12
+                            radius: 9
+                            color: "transparent"
+                            border.color: Theme.accent
+                            border.width: 1
+                            Text {
+                                id: markText
+                                anchors.centerIn: parent
+                                text: row.replyMark ? qsTr("Reply") : qsTr("No reply")
+                                font.pixelSize: 11
+                                font.weight: Font.DemiBold
+                                color: Theme.accent
+                            }
+                        }
                         IconImage {
                             visible: row.done
                             width: 14; height: 14
@@ -553,6 +617,7 @@ Rectangle {
                     id: quick
                     anchors.centerIn: parent
                     spacing: 1
+                    IconButton { size: 26; visible: row.replyMark || row.followMark; icon: "close"; tip: qsTr("Not needed"); onClicked: root.dismissAi(row.tid) }
                     IconButton { size: 26; icon: row.done ? "inbox" : "done"; tip: row.done ? qsTr("Not done (E)") : qsTr("Done (E)"); onClicked: root.action(row.done ? "undone" : "done", [row.tid]) }
                     IconButton { size: 26; icon: "pin"; active: row.pinned; tip: row.pinned ? qsTr("Unpin") : qsTr("Pin"); onClicked: root.action(row.pinned ? "unpin" : "pin", [row.tid]) }
                     IconButton { id: rowSnooze; size: 26; icon: "clock"; tip: qsTr("Snooze"); onClicked: root.snooze([row.tid], rowSnooze) }

@@ -109,6 +109,9 @@ use rusty_inbox_ai::{extract, ChatRequest};
 use rusty_inbox_core::ai_support;
 use rusty_inbox_core::store::MessageRow;
 use serde_json::{json, Value};
+
+/// Turns the model's full answer into the result JSON sent to QML (or a message for the user).
+type Finish = Box<dyn FnOnce(&str) -> Result<Value, String> + Send>;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -151,7 +154,7 @@ struct Prepared {
     req: ChatRequest,
     stream: bool,
     cache_key: Option<String>,
-    finish: Box<dyn FnOnce(&str) -> Result<Value, String> + Send>,
+    finish: Finish,
 }
 
 type Prep = Box<dyn FnOnce() -> Result<Prepared, String> + Send>;
@@ -238,7 +241,8 @@ fn mailbox_list(v: &Value) -> Vec<String> {
         .map(|a| {
             a.iter()
                 .filter_map(|x| {
-                    let addr = x["mailbox"].as_str().or(x["address"].as_str())?.trim();
+                    let addr =
+                        x["mailbox"].as_str().or(x["address"].as_str()).map(str::trim).filter(|a| !a.is_empty())?;
                     let name = x["name"].as_str().map(str::trim).filter(|n| !n.is_empty());
                     Some(match name {
                         Some(n) => format!("{n} <{addr}>"),
@@ -372,7 +376,7 @@ fn unreadable() -> String {
 // ---- the features ------------------------------------------------------------------------------------
 
 /// The result of a plain-text feature: `{feature, text}`.
-fn text_finish(feature: &'static str) -> Box<dyn FnOnce(&str) -> Result<Value, String> + Send> {
+fn text_finish(feature: &'static str) -> Finish {
     Box::new(move |answer| {
         let text = fc::parse_text(answer);
         if text.is_empty() {

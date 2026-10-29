@@ -554,8 +554,8 @@ mod tests {
         let texts: Vec<&str> = f.iter().map(|f| f.text.as_str()).collect();
         assert!(texts.iter().any(|t| t.contains("Reply-To domain (mybank-verify.ru)")));
         assert!(!texts.iter().any(|t| t.contains("Return-Path")), "same registrable domain: not a finding");
-        assert!(texts.iter().any(|t| *t == "SPF result: softfail"));
-        assert!(texts.iter().any(|t| *t == "DMARC result: fail"));
+        assert!(texts.contains(&"SPF result: softfail"));
+        assert!(texts.contains(&"DMARC result: fail"));
         assert!(texts.iter().any(|t| t.contains("bare IP address (203.0.113.9)")));
         assert!(texts.iter().any(|t| t.contains("shows \"www.mybank.com\" but opens mybank-secure.example.net")));
         assert!(!texts.iter().any(|t| t.contains("Click here")), "plain words are not a claim about a site");

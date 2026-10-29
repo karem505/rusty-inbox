@@ -24,6 +24,25 @@ Rectangle {
     property bool aiOn: false           // AI: the writing assistant button shows
     property alias tools: aiTools
     signal closed()
+    // web view calls with a result callback still on the way. The view must not be destroyed while
+    // one is pending: Qt WebEngine delivers the result to the dead view and crashes (Qt 6.12).
+    property int jsPending: 0
+    property bool closing: false
+    property var idleFns: []
+    function js(code, cb) {
+        jsPending++
+        web.runJavaScript(code, function(r) {
+            root.jsPending--
+            if (!root.closing) cb(r)          // a late autosave must not save a draft that was just discarded
+            if (root.jsPending === 0 && root.closing) { const f = root.idleFns; root.idleFns = []; f.forEach(fn => Qt.callLater(fn)) }
+        })
+    }
+    // run fn once no web view call is pending; nothing else runs on this composer after that
+    function whenIdle(fn) {
+        closing = true
+        if (jsPending === 0) Qt.callLater(fn)
+        else idleFns = idleFns.concat([fn])
+    }
     signal sendRequested(var draft, int outboxId, double sendAt)
     signal notice(string text)
     signal toggleExpand()
@@ -67,7 +86,7 @@ Rectangle {
     function refreshAi() { aiOn = aiTools.enabled() }
     Connections { target: root.backend; function onSettings_changed(json) { root.refreshAi() } }
     function ownText(cb) {
-        web.runJavaScript("ownText()", function(t) {
+        root.js("ownText()", function(t) {
             try { cb(String(t || "")) } catch (e) { console.warn("composer: ai text failed " + e) }
         })
     }
@@ -98,7 +117,7 @@ Rectangle {
     // the current draft, with the editor's html (async: the web view answers in a callback)
     function collect(then) {
         toField.finish(); ccField.finish(); bccField.finish()
-        web.runJavaScript("document.getElementById('ed') ? document.getElementById('ed').innerHTML : ''", function(html) {
+        root.js("document.getElementById('ed') ? document.getElementById('ed').innerHTML : ''", function(html) {
             try { then(root.snapshot(html)) } catch (e) { console.warn("composer: failed " + e) }
         })
     }
@@ -173,7 +192,7 @@ Rectangle {
     Shortcut { sequence: "Ctrl+J"; enabled: root.visible && root.aiOn; onActivated: aiTools.openMenu() }
     Shortcut { sequence: "Ctrl+Shift+A"; enabled: root.visible; onActivated: fileDialog.open() }
 
-    Timer { interval: 4000; repeat: true; running: root.visible && root.dirty; onTriggered: root.save(false) }
+    Timer { interval: 4000; repeat: true; running: root.visible && root.dirty && !root.closing; onTriggered: root.save(false) }
 
     ListModel { id: attachModel }
 

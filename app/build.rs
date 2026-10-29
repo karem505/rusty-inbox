@@ -1,6 +1,6 @@
 use cxx_qt_build::{CxxQtBuilder, QmlFile, QmlModule};
 
-const ICONS: [&str; 50] = [
+const ICONS: [&str; 53] = [
     "account",
     "archive",
     "back",
@@ -51,6 +51,10 @@ const ICONS: [&str; 50] = [
     "sparkle",
     "unread",
     "update",
+    // AI(C2)
+    "search",
+    "refresh",
+    "follow-up",
 ];
 
 fn main() {
@@ -84,6 +88,7 @@ fn main() {
         "qml/AiDots.qml".into(),
         "qml/AiPill.qml".into(),
         "qml/AiSubjectChips.qml".into(),
+        "qml/AiSearchBar.qml".into(), // C2
     ]))
     .qrc_resources(icons)
     .qt_module("Quick")

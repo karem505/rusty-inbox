@@ -2130,6 +2130,7 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 name = "rusty-inbox"
 version = "0.1.4"
 dependencies = [
+ "chrono",
  "cxx",
  "cxx-qt",
  "cxx-qt-build",
@@ -2155,6 +2156,7 @@ dependencies = [
  "base64 0.22.1",
  "getrandom 0.3.4",
  "pdf-extract",
+ "rusty-inbox-core",
  "serde",
  "serde_json",
  "sha2",

@@ -122,6 +122,37 @@ CREATE TABLE IF NOT EXISTS attachments (
     path        TEXT
 );
 
+-- AI organizing (features 11-15): labels the model gave to new mail, follow-up checks of sent mail,
+-- one briefing per day, and small runner state. The rule category in messages.category is never changed.
+CREATE TABLE IF NOT EXISTS ai_labels (
+    message_id  INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    category    TEXT NOT NULL,
+    eligible    INTEGER NOT NULL DEFAULT 0,      -- may override the rule category (rules were unsure, sender never written to)
+    needs_reply INTEGER NOT NULL DEFAULT 0,
+    dismissed   INTEGER NOT NULL DEFAULT 0,      -- the user said "Not needed"
+    priority    INTEGER NOT NULL DEFAULT 1,
+    reason      TEXT NOT NULL DEFAULT '',
+    model       TEXT NOT NULL DEFAULT '',
+    at_ms       INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS ai_followups (
+    message_id  INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    expects     INTEGER NOT NULL DEFAULT 0,
+    awaiting    TEXT NOT NULL DEFAULT '',
+    checked_ms  INTEGER NOT NULL DEFAULT 0,
+    notified    INTEGER NOT NULL DEFAULT 0,
+    dismissed   INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS ai_briefings (
+    day      TEXT PRIMARY KEY,
+    markdown TEXT NOT NULL,
+    at_ms    INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS ai_state (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     subject, sender, body, content='', tokenize='unicode61 remove_diacritics 2'
 );
@@ -208,6 +239,14 @@ pub struct ThreadRow {
     pub participants: Vec<(Option<String>, String)>,
     pub last_from: (Option<String>, String),
     pub category: String,
+    /// an inbox message of the conversation was labelled "needs reply" and is still open
+    pub needs_reply: bool,
+    /// the model's reason for the newest label of the conversation (tooltip), or empty
+    pub ai_reason: String,
+    /// a sent message of the conversation expects an answer that has not come
+    pub follow_up: bool,
+    /// what that answer is about, a few words
+    pub awaiting: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -282,6 +321,14 @@ pub enum ListFilter {
     Query(crate::search::Query),
     /// conversations with one person: messages from them or with them in To, Cc or Bcc.
     Contact(String),
+    /// AI(C2): inbox conversations labelled "needs reply" and not yet answered, Done or dismissed.
+    NeedsReply {
+        account: Option<String>,
+    },
+    /// AI(C2): conversations whose last sent message expects an answer that has not come.
+    FollowUp {
+        account: Option<String>,
+    },
 }
 
 /// Counts behind the sidebar badges (see `Store::sidebar_counts`).
@@ -294,11 +341,16 @@ pub struct SidebarCounts {
     pub pinned: i64,
     pub snoozed: i64,
     pub drafts: i64,
+    /// AI(C2): conversations that need a reply / wait for an answer
+    pub needs_reply: i64,
+    pub follow_up: i64,
 }
 
 pub struct Store {
-    db: Mutex<Connection>,
+    pub(crate) db: Mutex<Connection>,
     secrets: Mutex<Connection>,
+    /// AI(C2): show the model's category instead of the rule's where it is allowed to (see `ai_store`)
+    pub(crate) ai_apply: std::sync::atomic::AtomicBool,
 }
 
 impl Store {
@@ -323,7 +375,7 @@ impl Store {
             use std::os::unix::fs::PermissionsExt;
             let _ = std::fs::set_permissions(&secrets_path, std::fs::Permissions::from_mode(0o600));
         }
-        Ok(Store { db: Mutex::new(db), secrets: Mutex::new(secrets) })
+        Ok(Store { db: Mutex::new(db), secrets: Mutex::new(secrets), ai_apply: Default::default() })
     }
 
     pub fn in_memory() -> CoreResult<Store> {
@@ -331,7 +383,7 @@ impl Store {
         db.execute_batch(SCHEMA)?;
         let secrets = Connection::open_in_memory()?;
         secrets.execute_batch("CREATE TABLE secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL);")?;
-        Ok(Store { db: Mutex::new(db), secrets: Mutex::new(secrets) })
+        Ok(Store { db: Mutex::new(db), secrets: Mutex::new(secrets), ai_apply: Default::default() })
     }
 
     // ---------- settings ----------
@@ -650,6 +702,7 @@ impl Store {
     }
 
     pub fn thread_rows(&self, filter: &ListFilter, limit: usize) -> CoreResult<Vec<ThreadRow>> {
+        let eff = self.eff_category("m", "al");
         let db = self.db.lock();
         let (cond, arg): (String, Option<String>) = match filter {
             ListFilter::Inbox { account, done, category, with_done } => {
@@ -661,7 +714,7 @@ impl Store {
                     "f.role='inbox' AND t.done=0 AND t.snoozed_until IS NULL".to_string()
                 };
                 if let Some(cat) = category {
-                    c += &format!(" AND m.category='{}'", cat.replace('\'', ""));
+                    c += &format!(" AND {eff}='{}'", cat.replace('\'', ""));
                 }
                 (c, account.clone())
             }
@@ -675,9 +728,30 @@ impl Store {
             }
             ListFilter::Query(q) => (query_condition(q), None),
             ListFilter::Contact(addr) => (contact_condition(addr), None),
+            ListFilter::NeedsReply { account } => (
+                format!(
+                    "f.role='inbox' AND t.done=0 AND t.snoozed_until IS NULL AND {}",
+                    crate::ai_store::needs_reply_cond("m")
+                ),
+                account.clone(),
+            ),
+            ListFilter::FollowUp { account } => {
+                (format!("f.role='sent' AND {}", crate::ai_store::follow_up_cond("m")), account.clone())
+            }
         };
+        let needs_reply_col = format!(
+            "EXISTS (SELECT 1 FROM messages q JOIN folders fq ON fq.id=q.folder_id WHERE q.thread_id=t.id AND \
+             fq.role='inbox' AND t.done=0 AND {})",
+            crate::ai_store::needs_reply_cond("q")
+        );
+        let follow_up_col = format!(
+            "(SELECT fu.awaiting FROM ai_followups fu JOIN messages q ON q.id=fu.message_id WHERE q.thread_id=t.id \
+             AND fu.expects=1 AND fu.dismissed=0 AND NOT {} ORDER BY q.date_ms DESC LIMIT 1)",
+            crate::ai_store::answered_by_them("q")
+        );
         // in inbox lists a conversation is Done when marked so or when none of it is in the inbox
         let done_col = if matches!(filter, ListFilter::Inbox { .. }) { DONE_EXPR } else { "t.done" };
+        let eff_c = self.eff_category("c", "cl");
         let sql = format!(
             "SELECT t.id, t.account, t.subject, MAX(m.date_ms),
                     (SELECT COUNT(DISTINCT COALESCE(q.message_id, q.id)) FROM messages q WHERE q.thread_id=t.id), MIN(m.seen), MAX(m.flagged),
@@ -686,8 +760,12 @@ impl Store {
                     (SELECT json_group_array(json_array(from_name, from_addr)) FROM
                         (SELECT DISTINCT from_name, from_addr FROM messages y WHERE y.thread_id=t.id ORDER BY y.date_ms)),
                     (SELECT json_array(from_name, from_addr) FROM messages z WHERE z.thread_id=t.id ORDER BY z.date_ms DESC LIMIT 1),
-                    (SELECT category FROM messages c WHERE c.thread_id=t.id ORDER BY c.date_ms DESC LIMIT 1)
+                    (SELECT {eff_c} FROM messages c LEFT JOIN ai_labels cl ON cl.message_id=c.id WHERE c.thread_id=t.id ORDER BY c.date_ms DESC LIMIT 1),
+                    {needs_reply_col},
+                    (SELECT l.reason FROM ai_labels l JOIN messages q ON q.id=l.message_id WHERE q.thread_id=t.id AND l.reason<>'' ORDER BY q.date_ms DESC LIMIT 1),
+                    {follow_up_col}
              FROM threads t JOIN messages m ON m.thread_id=t.id JOIN folders f ON f.id=m.folder_id
+             LEFT JOIN ai_labels al ON al.message_id=m.id
              WHERE {cond} AND (?1 IS NULL OR t.account=?1)
              GROUP BY t.id ORDER BY MAX(m.date_ms) DESC LIMIT {limit}"
         );
@@ -718,6 +796,10 @@ impl Store {
                 participants: parts_v.as_array().map(|a| a.iter().map(parse_pair).collect()).unwrap_or_default(),
                 last_from: parse_pair(&last_v),
                 category: r.get::<_, Option<String>>(13)?.unwrap_or_else(|| "personal".into()),
+                needs_reply: r.get::<_, i64>(14)? != 0,
+                ai_reason: r.get::<_, Option<String>>(15)?.unwrap_or_default(),
+                follow_up: r.get::<_, Option<String>>(16)?.is_some(),
+                awaiting: r.get::<_, Option<String>>(16)?.unwrap_or_default(),
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -800,14 +882,16 @@ impl Store {
     /// Unread follows `thread_rows`: a thread is unread when one of its matching messages is unseen;
     /// a thread belongs to every category one of its inbox messages has.
     pub fn sidebar_counts(&self) -> CoreResult<SidebarCounts> {
+        let eff = self.eff_category("m", "al");
         let db = self.db.lock();
         let mut out = SidebarCounts::default();
-        let mut st = db.prepare(
-            "SELECT t.id, t.account, COALESCE(m.category,'personal'), MIN(m.seen)
+        let mut st = db.prepare(&format!(
+            "SELECT t.id, t.account, COALESCE({eff},'personal'), MIN(m.seen)
              FROM threads t JOIN messages m ON m.thread_id=t.id JOIN folders f ON f.id=m.folder_id
+             LEFT JOIN ai_labels al ON al.message_id=m.id
              WHERE f.role='inbox' AND t.done=0 AND t.snoozed_until IS NULL
-             GROUP BY t.id, COALESCE(m.category,'personal')",
-        )?;
+             GROUP BY t.id, COALESCE({eff},'personal')"
+        ))?;
         let rows = st.query_map([], |r| {
             Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, i64>(3)? == 0))
         })?;
@@ -836,6 +920,11 @@ impl Store {
         out.drafts = count(
             "SELECT COUNT(DISTINCT m.thread_id) FROM messages m JOIN folders f ON f.id=m.folder_id WHERE f.role='drafts'",
         )?;
+        drop(st);
+        drop(db);
+        let ai = self.ai_counts()?; // AI(C2)
+        out.needs_reply = ai.needs_reply;
+        out.follow_up = ai.follow_up;
         Ok(out)
     }
 
@@ -1098,7 +1187,7 @@ impl Store {
 }
 
 /// SQL literal (single quotes doubled) — values come from the user's search field.
-fn lit(s: &str) -> String {
+pub(crate) fn lit(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
@@ -1123,7 +1212,7 @@ fn recipient_name(db: &Connection, addr: &str) -> CoreResult<Option<String>> {
 }
 
 /// SQL: message `m` has `addr` (lower case) in To, Cc or Bcc.
-fn recipient_condition(addr: &str) -> String {
+pub(crate) fn recipient_condition(addr: &str) -> String {
     // addresses are stored as JSON objects: {"name":…,"mailbox":"a@b"}
     let needle = lit(&format!("\"mailbox\":{}", Value::String(addr.to_string())));
     format!("(instr(lower(m.to_json), {needle}) > 0 OR instr(lower(m.cc_json), {needle}) > 0 OR instr(lower(m.bcc_json), {needle}) > 0)")

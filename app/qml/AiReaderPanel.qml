@@ -206,7 +206,8 @@ Item {
         interactive: contentHeight > height + 1
         boundsBehavior: Flickable.StopAtBounds
         clip: true
-        ScrollBar.vertical: ScrollBar {}
+        // cards taller than the panel scroll: keep the bar visible then, so a cut-off card reads as "more below"
+        ScrollBar.vertical: ScrollBar { policy: parent.interactive ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded }
     Column {
         id: col
         width: parent.width
