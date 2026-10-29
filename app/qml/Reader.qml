@@ -20,6 +20,10 @@ Rectangle {
     signal openAttachment(int id)
     signal saveAttachment(int id, string name)
     signal saveAttachments(var ids)
+    signal smartReply(string text)                  // AI: a suggested reply was clicked
+    property alias assistantPanel: aiPanel          // AI strip + cards (scripted checks reach in here)
+    property var translated: null                   // AI: {id, text, target} of the translated newest message
+    property bool showTr: false
 
     // links of this page (people, attachments) go to the app, never to the network
     readonly property string appLink: "https://rusty-inbox.invalid/"
@@ -46,12 +50,14 @@ Rectangle {
     }
     readonly property string clipSvg: "<svg viewBox='0 0 24 24' width='15' height='15' fill='none' stroke='currentColor' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.1-8.1a3.4 3.4 0 0 1 4.8 4.8l-8.1 8.1a1.7 1.7 0 0 1-2.4-2.4l7.4-7.4'/></svg>"
     readonly property string downloadSvg: "<svg viewBox='0 0 24 24' width='15' height='15' fill='none' stroke='currentColor' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M12 4v11'/><path d='M7.5 10.5L12 15l4.5-4.5'/><path d='M5 19.5h14'/></svg>"
+    readonly property string sparkSvg: "<svg viewBox='0 0 24 24' width='15' height='15' fill='none' stroke='currentColor' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z'/><path d='M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z'/></svg>"
     function attachmentChips(list) {
         if (!list.length) return ""
         const chips = list.map(a => "<span class='att' id='att-" + a.id + "'>"
             + "<a class='open' href='" + appLink + "attachment?do=open&id=" + a.id + "' title='" + esc(qsTr("Open %1").arg(a.name)) + "'>"
             + clipSvg + "<span class='name'>" + esc(a.name) + "</span><span class='size'>" + sizeLabel(a.size) + "</span></a>"
             + "<a class='save' href='" + appLink + "attachment?do=save&id=" + a.id + "' title='" + esc(qsTr("Save %1…").arg(a.name)) + "'>" + downloadSvg + "</a>"
+            + (aiPanel.aiOn && aiPanel.attachmentOk(a) ? "<a class='save sum' href='" + appLink + "ai?do=attsum&id=" + a.id + "' title='" + esc(qsTr("Summarize %1").arg(a.name)) + "'>" + sparkSvg + "</a>" : "")
             + "</span>").join("")
         const all = list.length > 1
             ? "<a class='saveall' href='" + appLink + "attachment?do=saveall&ids=" + list.map(a => a.id).join(",") + "'>" + downloadSvg + esc(qsTr("Save all")) + "</a>"
@@ -87,6 +93,8 @@ Rectangle {
         else if (path === "attachment" && q.do === "open") root.openAttachment(Number(q.id))
         else if (path === "attachment" && q.do === "save") root.saveAttachment(Number(q.id), attachmentName(Number(q.id)))
         else if (path === "attachment" && q.do === "saveall") root.saveAttachments(q.ids.split(",").map(Number))
+        else if (path === "ai" && q.do === "original") { showTr = false; aiPanel.trShown = false; rerender() }
+        else if (path === "ai" && q.do === "attsum") aiPanel.summarizeAttachment(Number(q.id), attachmentName(Number(q.id)))
     }
     function css(c) { return String(c) }
     function fontStack() { return (Theme.font ? "'" + Theme.font + "'," : "") + "sans-serif" }
@@ -104,13 +112,21 @@ Rectangle {
 
     function showMessages(msgs) {
         lastMessages = msgs
+        aiPanel.sync(msgs)
+        if (translated && !aiPanel.trReady) { translated = null; showTr = false }
         let parts = []
         for (const m of msgs) {
-            const body = m.html
+            const tr = translated && showTr && m.id === translated.id ? translated : null
+            const body = tr
+                ? "<div dir='auto' style='white-space:pre-wrap;font-size:14px;line-height:1.5'>" + esc(tr.text) + "</div>"
+                : m.html
                 ? m.html
                 : (m.fetched || m.text
                     ? "<pre style='white-space:pre-wrap;font-family:inherit;font-size:14px;margin:0'>" + esc(m.text || "") + "</pre>"
                     : "<p style='color:#8a8d96'>" + qsTr("Downloading message…") + "</p>")
+            const banner = tr
+                ? "<div class='aitr'>" + sparkSvg + "<span>" + esc(qsTr("Translated to %1 by the assistant").arg(tr.target)) + "</span><a href='" + appLink + "ai?do=original'>" + esc(qsTr("Show original")) + "</a></div>"
+                : ""
             const doc = "<!doctype html><html><head><meta charset='utf-8'><base target='_blank'>"
                 + "<style>body{margin:0;font-family:sans-serif;font-size:14px;color:#1d1d22;overflow-wrap:anywhere}img{max-width:100%;height:auto}</style>"
                 + "</head><body>" + body + "</body></html>"
@@ -125,7 +141,7 @@ Rectangle {
                 + (fromName ? " " + personLink(m.fromAddr, fromName, "addr", "<" + m.fromAddr + ">") : "") + "</div>"
                 + "<span class='date'>" + esc(new Date(m.date).toLocaleString(Qt.locale(), "ddd d MMM yyyy, hh:mm")) + "</span></div>"
                 + (recipients ? "<div class='to'>" + recipients + "</div>" : "") + "</header>"
-                + "<div class='paper'><iframe sandbox='allow-same-origin allow-popups' srcdoc=\"" + esc(doc) + "\"></iframe></div>"
+                + banner + "<div class='paper'><iframe sandbox='allow-same-origin allow-popups' srcdoc=\"" + esc(doc) + "\"></iframe></div>"
                 + files + "</section>")
         }
         const subject = msgs.length ? esc(msgs[msgs.length - 1].subject) : ""
@@ -145,6 +161,8 @@ Rectangle {
             + "a.who,a.addr,a.person{border-radius:4px;cursor:pointer}"
             + "a.who:hover,a.addr:hover,a.person:hover{color:" + css(Theme.accent) + ";text-decoration:underline;text-underline-offset:2px}"
             + ".to{margin-top:2px;line-height:1.6}.rcpt{margin-right:12px}.rcpt .lbl{opacity:.8}.to a.person{color:" + css(Theme.textSubtle) + "}"
+            + ".aitr{display:flex;align-items:center;gap:8px;font-size:12px;color:" + css(Theme.textMuted) + ";margin-bottom:8px}.aitr svg{color:" + css(Theme.accent) + "}"
+            + ".aitr a{color:" + css(Theme.accent) + ";cursor:pointer}.aitr a:hover{text-decoration:underline}"
             + ".atts{margin-top:12px}.atthead{display:flex;align-items:center;gap:14px;font-size:12px;color:" + css(Theme.textMuted) + ";margin-bottom:8px}"
             + ".att{display:inline-flex;align-items:stretch;border:1px solid " + css(Theme.border) + ";border-radius:8px;margin:0 8px 8px 0;font-size:13px;color:" + css(Theme.text) + ";background:" + css(Theme.surface) + ";overflow:hidden;max-width:100%}"
             + ".att a{display:inline-flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;transition:background .11s}"
@@ -266,9 +284,27 @@ Rectangle {
         }
     }
 
+    // AI: summary, translation, smart replies, phishing check (height 0 when AI is off)
+    AiReaderPanel {
+        id: aiPanel
+        anchors.top: bar.bottom
+        width: parent.width
+        z: 1
+        listName: root.listName
+        onSmartReply: (text) => root.smartReply(text)
+        onTranslationReady: (tr) => { root.translated = tr; root.showTr = true; aiPanel.trShown = true; root.rerender() }
+        onToggleTranslation: { root.showTr = !root.showTr; aiPanel.trShown = root.showTr; root.rerender() }
+        onAttachmentBusy: (id, busy) => root.setBusy(id, busy)
+    }
+    Shortcut {
+        sequence: "Shift+S"
+        enabled: root.visible && aiPanel.aiOn && (!root.Window.window || root.Window.window.keysOn !== false)
+        onActivated: aiPanel.summarize()
+    }
+
     WebEngineView {
         id: web
-        anchors.top: bar.bottom
+        anchors.top: aiPanel.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: quick.top
