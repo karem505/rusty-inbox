@@ -1,0 +1,50 @@
+[
+ {
+  "match": "TASK=proofread",
+  "answer": "Hi Maya,\n\nThanks for the quick turnaround. I looked at the timeline and the packaging dates look fine, but we should confirm the announcement on Tuesday.\n\nBest,\nAlex"
+ },
+ {
+  "match": "TASK=rewrite style=formal",
+  "answer": "Dear Maya,\n\nThank you for your prompt response. I have reviewed the timeline and find the packaging dates acceptable; however, I would suggest that we confirm the announcement for Tuesday.\n\nKind regards,\nAlex"
+ },
+ {
+  "match": "TASK=rewrite style=friendly",
+  "answer": "Hi Maya!\n\nThanks so much for the fast turnaround. The packaging dates look good to me, let's just lock in the announcement for Tuesday.\n\nCheers,\nAlex"
+ },
+ {
+  "match": "TASK=rewrite style=shorter",
+  "answer": "Hi Maya, the packaging dates look fine. Let's confirm the Tuesday announcement.\n\nAlex"
+ },
+ {
+  "match": "TASK=rewrite style=longer",
+  "answer": "Hi Maya,\n\nThank you very much for the quick turnaround on this. I have gone through the whole timeline and the packaging dates look fine to me. The one thing I would like us to do before we go ahead is to confirm the announcement for Tuesday.\n\nBest regards,\nAlex"
+ },
+ {
+  "match": "TASK=rewrite style=clearer",
+  "answer": "Hi Maya,\n\nThanks for the quick reply. The packaging dates in the timeline are fine. Next step: let's confirm that we announce on Tuesday.\n\nBest,\nAlex"
+ },
+ {
+  "match": "TASK=rewrite style=persuasive",
+  "answer": "Hi Maya,\n\nThanks for moving so fast. The packaging dates work, so the last thing between us and a clean launch is locking in Tuesday for the announcement. Let's confirm it today.\n\nBest,\nAlex"
+ },
+ {
+  "match": "TASK=translate-draft target=Arabic",
+  "answer": "مرحباً مايا،\n\nشكراً على الرد السريع. راجعت الجدول الزمني وتواريخ التغليف تبدو مناسبة، لكن علينا تأكيد موعد الإعلان يوم الثلاثاء.\n\nمع أطيب التحيات،\nأليكس"
+ },
+ {
+  "match": "TASK=translate-draft target=English",
+  "answer": "Hi Maya,\n\nThanks for the quick reply. I reviewed the timeline and the packaging dates look fine, but we need to confirm the announcement date on Tuesday.\n\nBest regards,\nAlex"
+ },
+ {
+  "match": "TASK=translate-draft",
+  "answer": "Bonjour Maya,\n\nMerci pour votre réponse rapide. Les dates d'emballage me semblent correctes, mais confirmons l'annonce pour mardi.\n\nCordialement,\nAlex"
+ },
+ {
+  "match": "TASK=write-for-me",
+  "answer": "Hi Maya,\n\nTuesday works for me, thanks for confirming. The benchmark section is a great addition: it really is the strongest part of the story.\n\nCould you send me the final deck by Friday? I'd like to read it once more before we announce.\n\nBest regards,\nAlex"
+ },
+ {
+  "match": "TASK=subject-ideas",
+  "answer": "{\"subjects\": [\"Confirming Tuesday for the v1.0 announcement\", \"Packaging dates are fine: next step is the announcement\", \"Re: Launch plan, final deck by Friday\"]}"
+ }
+]

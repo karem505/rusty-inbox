@@ -80,6 +80,10 @@ fn main() {
         "qml/AiComposerTools.qml".into(),
         "qml/AiReaderPanel.qml".into(),
         "qml/AiBriefing.qml".into(),
+        "qml/AiButton.qml".into(),
+        "qml/AiDots.qml".into(),
+        "qml/AiPill.qml".into(),
+        "qml/AiSubjectChips.qml".into(),
     ]))
     .qrc_resources(icons)
     .qt_module("Quick")

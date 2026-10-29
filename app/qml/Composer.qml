@@ -21,6 +21,8 @@ Rectangle {
     property var fmt: ({})              // active formats under the caret
     property bool showCc: false
     property bool showBcc: false
+    property bool aiOn: false           // AI: the writing assistant button shows
+    property alias tools: aiTools
     signal closed()
     signal sendRequested(var draft, int outboxId, double sendAt)
     signal notice(string text)
@@ -44,6 +46,7 @@ Rectangle {
         for (const a of (d.attachments || [])) attachModel.append({ name: a.name, mime: a.mime || "", size: a.size || 0, path: a.path || "", fromAttachment: a.fromAttachment || 0 })
         pendingHtml = d.html || "<p><br></p>"
         dirty = false
+        refreshAi()
         if (editorReady) setEditorHtml(pendingHtml)
         Qt.callLater(() => {
             if ((d.to || []).length === 0) toField.focusInput()
@@ -57,6 +60,29 @@ Rectangle {
         toField.addresses = to
         subject.text = subj
         setEditorHtml(html)
+        dirty = true
+    }
+
+    // ---- AI writing assistant: operates on the user's own text (above the signature and the quote)
+    function refreshAi() { aiOn = aiTools.enabled() }
+    Connections { target: root.backend; function onSettings_changed(json) { root.refreshAi() } }
+    function ownText(cb) {
+        web.runJavaScript("ownText()", function(t) {
+            try { cb(String(t || "")) } catch (e) { console.warn("composer: ai text failed " + e) }
+        })
+    }
+    function paragraphsHtml(text) {
+        const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        return String(text).trim().split(/\n{2,}/).map(p => "<p dir=\"auto\">" + esc(p).replace(/\n/g, "<br>") + "</p>").join("")
+    }
+    function applyOwn(text, mode) {
+        web.runJavaScript("try{applyOwn(" + JSON.stringify(paragraphsHtml(text)) + "," + JSON.stringify(mode) + ")}catch(e){console.warn('applyOwn '+e)}")
+        dirty = true
+    }
+    // a smart reply chosen in the reader: it goes above the signature of the new reply
+    function prefillReply(text) {
+        pendingHtml = String(pendingHtml).replace("<p><br></p>", paragraphsHtml(text))
+        if (editorReady) setEditorHtml(pendingHtml)
         dirty = true
     }
 
@@ -143,7 +169,8 @@ Rectangle {
     }
 
     Shortcut { sequences: ["Ctrl+Return", "Ctrl+Enter"]; enabled: root.visible; onActivated: root.send(0) }
-    Shortcut { sequence: "Escape"; enabled: root.visible; onActivated: root.closeComposer() }
+    Shortcut { sequence: "Escape"; enabled: root.visible; onActivated: aiTools.active ? aiTools.dismiss() : root.closeComposer() }
+    Shortcut { sequence: "Ctrl+J"; enabled: root.visible && root.aiOn; onActivated: aiTools.openMenu() }
     Shortcut { sequence: "Ctrl+Shift+A"; enabled: root.visible; onActivated: fileDialog.open() }
 
     Timer { interval: 4000; repeat: true; running: root.visible && root.dirty; onTriggered: root.save(false) }
@@ -331,6 +358,11 @@ Rectangle {
             }
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.border }
         }
+        AiSubjectChips {
+            model: aiTools.subjects
+            onPicked: (s) => { subject.text = s; root.dirty = true; aiTools.subjects = [] }
+            onDismissed: aiTools.subjects = []
+        }
     }
 
     // ---- formatting toolbar
@@ -375,6 +407,8 @@ Rectangle {
         Fmt { icon: "quote"; tip: qsTr("Quote"); onClicked: root.exec("formatBlock", "blockquote") }
         Fmt { id: linkBtn; icon: "link"; tip: qsTr("Link"); onClicked: linkPopup.open() }
         Fmt { icon: "clear-format"; tip: qsTr("Clear formatting"); onClicked: { root.exec("removeFormat"); root.exec("formatBlock", "p") } }
+        Rectangle { visible: root.aiOn; width: 1; height: 20; color: Theme.border; anchors.verticalCenter: parent.verticalCenter }
+        Fmt { id: aiBtn; objectName: "aiButton"; visible: root.aiOn; icon: "sparkle"; tip: qsTr("Writing assistant (Ctrl+J)"); active: aiTools.active; onClicked: aiTools.openMenu() }
     }
 
     // ---- body editor
@@ -521,6 +555,15 @@ Rectangle {
         }
     }
 
+    AiComposerTools {
+        id: aiTools
+        anchors.fill: parent
+        z: 10
+        composer: root
+        menuAnchor: aiBtn
+        bottomInset: bottomBar.height + attachFlow.height + (attachModel.count ? 8 : 0) + 8
+    }
+
     // drop files anywhere on the composer
     DropArea {
         anchors.fill: parent
@@ -553,6 +596,16 @@ Rectangle {
             + "const ed=document.getElementById('ed');let n=0;"
             + "function setContent(h){ed.innerHTML=h;}"
             + "function insertAtCaret(h){ed.focus();const s=getSelection();if(!s.rangeCount||!ed.contains(s.anchorNode)){const r=document.createRange();r.setStart(ed,0);r.collapse(true);s.removeAllRanges();s.addRange(r);}document.execCommand('insertHTML',false,h);document.title='dirty:'+(n++);}"
+            + "function ownMarker(){let m=null;for(const x of [ed.querySelector('.ri-signature'),ed.querySelector('blockquote.ri-quote')]){if(!x)continue;let c=x;while(c&&c.parentNode!==ed)c=c.parentNode;if(c&&(!m||(m.compareDocumentPosition(c)&Node.DOCUMENT_POSITION_PRECEDING)))m=c;}"
+            + "if(m){while(m.previousSibling&&((m.previousSibling.nodeType===1&&(m.previousSibling.tagName==='BR'||(m.previousSibling.tagName==='DIV'&&/(wrote:|Forwarded message)/.test(m.previousSibling.textContent))))||(m.previousSibling.nodeType===3&&!m.previousSibling.data.trim())))m=m.previousSibling;}return m;}"
+            + "function ownNodes(){const m=ownMarker();const out=[];for(const n of ed.childNodes){if(n===m)break;out.push(n);}return out;}"
+            + "function ownText(){let out='';const blk=/^(P|DIV|LI|UL|OL|BLOCKQUOTE|H[1-6]|PRE|TABLE|TR)$/;"
+            + "function walk(n){if(n.nodeType===3){out+=n.data.replace(/\\u00a0/g,' ');return}if(n.nodeType!==1)return;if(n.tagName==='BR'){out+='\\n';return}"
+            + "const b=blk.test(n.tagName);if(b&&out&&!out.endsWith('\\n'))out+='\\n';n.childNodes.forEach(walk);if(b&&out){if(n.tagName==='P'){if(!out.endsWith('\\n\\n'))out+=out.endsWith('\\n')?'\\n':'\\n\\n'}else if(!out.endsWith('\\n'))out+='\\n'}}"
+            + "ownNodes().forEach(walk);return out.replace(/\\n{3,}/g,'\\n\\n').trim();}"
+            + "function applyOwn(h,mode){const m=ownMarker();ed.focus();const s=getSelection();const r=document.createRange();"
+            + "if(mode==='replace'){r.setStart(ed,0);if(m)r.setEndBefore(m);else r.setEnd(ed,ed.childNodes.length);}else{if(m)r.setStartBefore(m);else r.setStart(ed,ed.childNodes.length);r.collapse(true);}"
+            + "s.removeAllRanges();s.addRange(r);document.execCommand('insertHTML',false,h);document.title='dirty:'+(n++);}"
             + "function focusStart(){ed.focus();const r=document.createRange();r.setStart(ed,0);r.collapse(true);const s=getSelection();s.removeAllRanges();s.addRange(r);}"
             + "function report(){const k=['bold','italic','underline','strikeThrough','insertUnorderedList','insertOrderedList'];document.title='fmt:'+k.map(c=>document.queryCommandState(c)?1:0).join('')+':'+(n++);}"
             + "ed.addEventListener('input',()=>{document.title='dirty:'+(n++)});"

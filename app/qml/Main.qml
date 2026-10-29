@@ -320,6 +320,13 @@ ApplicationWindow {
             openThread(id)
         }
     }
+    // AI(C1): a suggested reply picked in the reader opens the reply composer with that text
+    function replyWithText(text) {
+        const msgs = readerLoader.item && readerLoader.item.lastMessages
+        if (composerLoader.active || !msgs || !msgs.length) return
+        compose("reply", msgs[msgs.length - 1].id)
+        if (composerLoader.item) composerLoader.item.prefillReply(text)
+    }
     function closeComposer() {
         composerLoader.active = false
         composeExpanded = false
@@ -585,6 +592,7 @@ ApplicationWindow {
                     function onOpenAttachment(id) { win.openAttachment(id) }
                     function onSaveAttachment(id, name) { win.saveAttachment(id, name) }
                     function onSaveAttachments(ids) { win.saveAttachments(ids) }
+                    function onSmartReply(text) { win.replyWithText(text) }     // AI(C1)
                 }
             }
         }
@@ -652,7 +660,10 @@ ApplicationWindow {
 
     function shot(name, then) {
         // the window's root item: the page plus popups (menus, dialogs, the contact card)
-        (win.contentItem.parent || page).grabToImage(r => { r.saveToFile(autotestDir + "/" + name + ".png"); console.warn("AUTOTEST shot", name); if (then) then() })
+        // Qt 6.12 refuses to grab the root item ("item has no QML engine"): then grab the page (no popups)
+        const done = r => { r.saveToFile(autotestDir + "/" + name + ".png"); console.warn("AUTOTEST shot", name); if (then) then() }
+        const root = win.contentItem.parent
+        if (!root || !root.grabToImage(done)) page.grabToImage(done)
     }
     function log(what) {
         console.warn("AUTOTEST", what, JSON.stringify({ threads: threads.length, inbox: sidebarModel.inbox, pinned: sidebarModel.pinned, snoozed: sidebarModel.snoozed, pending: pending.length, open: openId }))
@@ -681,8 +692,8 @@ ApplicationWindow {
             if (win.stressN % 25 === 0) { const c = Object.assign({}, threadList.collapsed); c.notifications = !c.notifications; threadList.collapsed = c }
         }
     }
-    // AI(B): `--autotest-ai` runs only the AI pass below (the regular pass is skipped)
-    readonly property bool autotestAi: Qt.application.arguments.indexOf("--autotest-ai") >= 0
+    // AI(B): `--autotest-ai-settings` runs only the AI pass below (the regular pass is skipped)
+    readonly property bool autotestAi: Qt.application.arguments.indexOf("--autotest-ai-settings") >= 0
     readonly property bool autotestAiLight: Qt.application.arguments.indexOf("--autotest-ai-light") >= 0
     property int aiStepB: 0
     function shotB(name, then) {     // Qt 6.12: the window's root item has no QML engine, grab the page
@@ -727,6 +738,81 @@ ApplicationWindow {
             }
         }
     }
+    // AI(C1) ---- scripted AI pass (--autotest=<dir> --autotest-ai, mock server on RUSTY_INBOX_AI_URL) ------
+    readonly property bool aiTest: Qt.application.arguments.indexOf("--autotest-ai") >= 0
+    property int aiN: 0
+    property int aiTicks: 0
+    property bool aiActed: false
+    property bool aiSettled: false
+    property bool aiBusy: false
+    function aiR() { return readerLoader.item }
+    function aiC() { return composerLoader.item }
+    function aiOpen(list, subject) {
+        win.select({ list: list })
+        const t = win.threads.find(x => x.subject && x.subject.indexOf(subject) >= 0) || win.threads[0]
+        win.openThread(t.id)
+    }
+    function aiDraft() {
+        return "<p>Hi Maya,</p><p>Thanks for the quick turnaround. I looked at the timeline and teh packaging dates look fine, "
+            + "but we should confrim the announcment on tuesday.</p><p>Best,<br>Alex</p>"
+            + "<div class=\"ri-signature\"><br>-- <br>Alex Rivera<br>Northwind</div><br><div>On Mon, 5 Oct 2026 at 10:00, Maya Chen &lt;maya@northwind.dev&gt; wrote:</div>"
+            + "<blockquote class=\"ri-quote\">Tuesday. Mondays are noisy.</blockquote>"
+    }
+    readonly property var aiScript: [
+        { act: () => win.aiOpen("inbox", "Launch plan"), shot: "ai-reader-auto",
+          ready: () => aiR() && aiR().lastMessages && aiR().lastMessages.length >= 3 && aiR().assistantPanel.stateOf("summary") === "done" && aiR().assistantPanel.stateOf("replies") === "done" },
+        { act: () => aiR().assistantPanel.translate(), shot: "ai-translate", ready: () => aiR().assistantPanel.trReady && aiR().assistantPanel.trShown },
+        { act: () => aiR().assistantPanel.translate(), shot: "ai-translate-original", ready: () => !aiR().assistantPanel.trShown },
+        { act: () => aiR().assistantPanel.checkPhishing(), shot: "ai-phishing", ready: () => aiR().assistantPanel.stateOf("phishing") === "done" },
+        { act: () => { const a = [].concat(...aiR().lastMessages.map(m => m.attachments || []))[0]; aiR().assistantPanel.dismiss("summary"); aiR().assistantPanel.dismiss("replies"); aiR().assistantPanel.summarizeAttachment(a.id, a.name) },
+          shot: "ai-attachment-summary", ready: () => ["done", "error"].indexOf(aiR().assistantPanel.stateOf("attachment")) >= 0 },
+        { act: () => { aiR().assistantPanel.dismiss("attachment"); aiR().assistantPanel.suggestReplies() }, ready: () => aiR().assistantPanel.stateOf("replies") === "done" },
+        { act: () => aiR().smartReply(aiR().assistantPanel.st.replies.data.replies[0]), shot: "ai-reply-prefilled", ready: () => composerLoader.active && aiC().editorReady && aiC().aiOn },
+        { act: () => aiC().setEditorHtml(win.aiDraft()), shot: "ai-composer-button", ready: () => true },
+        { act: () => aiC().tools.openMenu(), shot: "ai-menu", ready: () => true },
+        { act: () => { aiC().tools.menu.close(); aiC().tools.doProofread() }, shot: "ai-proofread", ready: () => aiC().tools.phase === "result" },
+        { act: () => aiC().tools.apply("replace"), ready: () => aiC().tools.phase === "idle" },
+        { act: () => aiC().collect(d => console.warn("AUTOTEST ai replace kept signature/quote, fixed text:", d.html.indexOf("ri-signature") > 0, d.html.indexOf("ri-quote") > 0, d.html.indexOf("teh packaging") < 0 && d.html.indexOf("the packaging") > 0, d.html.indexOf("Mondays are noisy") > 0)), ready: () => true },
+        { act: () => aiC().tools.doRewrite("formal", "Formal"), shot: "ai-rewrite", ready: () => aiC().tools.phase === "result" },
+        { act: () => aiC().tools.doTranslate("Arabic"), shot: "ai-translate-draft", ready: () => aiC().tools.phase === "result" },
+        { act: () => { aiC().tools.dismiss(); aiC().tools.askWrite() }, shot: "ai-write-input", ready: () => true },
+        { act: () => aiC().tools.startWrite("Tell Maya Tuesday works, thank her for the benchmark section and ask for the final deck by Friday."), shot: "ai-write-streaming", ready: () => aiC().tools.phase === "loading" && aiC().tools.partialText.length > 60 },
+        { act: () => {}, shot: "ai-write-result", ready: () => aiC().tools.phase === "result" },
+        { act: () => { aiC().tools.dismiss(); aiC().tools.doSubjects() }, shot: "ai-subjects", ready: () => aiC().tools.subjects.length === 3 },
+        { act: () => aiC().tools.failForTest(), shot: "ai-error", ready: () => aiC().tools.phase === "error" },
+        { act: () => { aiC().tools.dismiss(); aiC().discard() }, ready: () => !composerLoader.active },
+        { act: () => win.aiOpen("spam", "You have won"), ready: () => aiR() && aiR().lastMessages && aiR().lastMessages.length >= 1 && aiR().assistantPanel.aiOn },
+        { act: () => aiR().assistantPanel.checkPhishing(), shot: "ai-phishing-high", ready: () => aiR().assistantPanel.stateOf("phishing") === "done" },
+        { act: () => { const t = win.threads.find(x => x.id === win.openId); win.aiExcludedAccount = t ? t.account : ""; backend.set_setting("aiExcluded", JSON.stringify(win.aiExcludedAccount)); aiR().assistantPanel.summarize() },
+          shot: "ai-excluded", ready: () => aiR().assistantPanel.stateOf("summary") === "error" },
+        { act: () => { backend.set_setting("aiExcluded", "\"\""); aiR().assistantPanel.summarize() }, ready: () => aiR().assistantPanel.stateOf("summary") === "done" }
+    ]
+    property string aiExcludedAccount: ""
+    Timer {
+        id: aiC1
+        interval: 500
+        repeat: true
+        onTriggered: {
+            if (win.aiBusy) return
+            const s = win.aiScript[win.aiN]
+            if (!s) { console.warn("AUTOTEST end"); Qt.quit(); return }
+            if (!win.aiActed) {
+                win.aiActed = true
+                win.aiTicks = 0
+                try { s.act() } catch (e) { console.warn("AUTOTEST ai step", win.aiN, "act failed:", e) }
+                return
+            }
+            let ok = false
+            try { ok = s.ready() } catch (e) { console.warn("AUTOTEST ai step", win.aiN, "ready failed:", e) }
+            if (!ok && ++win.aiTicks <= 40) return
+            if (ok && !win.aiSettled) { win.aiSettled = true; return }     // let the animations finish
+            console.warn("AUTOTEST ai step", win.aiN, s.shot || "-", ok ? "ok" : "TIMEOUT")
+            const next = () => { win.aiN++; win.aiActed = false; win.aiSettled = false; win.aiBusy = false }
+            if (s.shot) { win.aiBusy = true; win.shot(s.shot, next) } else next()
+        }
+    }
+    // AI(C1) ---- end of the AI pass
+
     Timer {
         id: script
         running: win.autotestDir !== "" && !win.autotestAi && !win.autotestAiLight
@@ -833,7 +919,7 @@ ApplicationWindow {
             case 88: if (readerLoader.item) readerLoader.item.clickFirst(".from a.who"); break
             case 89: { const a = contactCard.address; contactCard.close(); if (a) win.showContact(a, contactCard.displayName); break }
             case 90: win.log("contact conversations " + win.listTitle(win.spec)); win.shot("33-contact-conversations"); break
-            case 91: console.warn("AUTOTEST end"); Qt.quit(); break
+            case 91: if (win.aiTest) { aiC1.start(); break } console.warn("AUTOTEST end"); Qt.quit(); break     // AI(C1): hand over to the AI pass
             }
         }
     }
