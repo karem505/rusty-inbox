@@ -27,5 +27,10 @@ sha2 = "0.10"
 [build-dependencies]
 cxx-qt-build = "0.10"
 
+# the desktop's light/dark preference (XDG desktop portal) for Theme "System" outside Omarchy; the same
+# zbus that notify-rust already builds, plus its blocking API
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+
 [target.'cfg(windows)'.build-dependencies]
 embed-resource = "3"

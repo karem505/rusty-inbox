@@ -94,8 +94,10 @@ fn main() {
     .qt_module("Quick")
     .qt_module("QuickControls2")
     .qt_module("WebEngineQuick")
+    .qt_module("Widgets")
     .files(["src/bridge.rs", "src/ai_settings.rs", "src/assistant.rs", "src/ai_inbox.rs"])
     .cpp_file("cpp/webengine_init.cpp")
+    .cpp_file("cpp/application.cpp")
     .include_dir("cpp")
     .build();
 }

@@ -103,7 +103,7 @@ default_method() {
   if [ -e "$BIN_DIR/rusty-inbox" ]; then METHOD=source; return; fi
   if have flatpak; then METHOD=flatpak; return; fi
   if [ -r /etc/os-release ] && grep -qi 'arch' /etc/os-release 2>/dev/null; then
-    say "Arch Linux detected: a native package is also available (makepkg -si in packaging/aur/rusty-inbox-bin)."
+    say "Arch Linux detected: a native package is also available (yay -S rusty-inbox, from the AUR)."
   fi
   say "Flatpak is not installed, so the AppImage is used (install flatpak and run this again to switch)."
   METHOD=appimage

@@ -87,7 +87,10 @@ fn main() {
     // must precede QGuiApplication (stock QtWebEngine requirement)
     bridge::rustyinbox_init_webengine();
 
-    let mut app = QGuiApplication::new();
+    // a QApplication (Qt Widgets) underneath: KDE's platform theme builds widgets for the tray menu
+    // and file dialogs, which abort the process under a bare QGuiApplication (issue #4)
+    let args: Vec<String> = std::env::args_os().map(|a| a.to_string_lossy().into_owned()).collect();
+    let mut app = bridge::rustyinbox_new_application(&args);
     if let Some(mut a) = app.as_mut() {
         a.as_mut().set_application_name(&QString::from(APP_NAME));
         a.as_mut().set_application_display_name(&QString::from(APP_NAME));

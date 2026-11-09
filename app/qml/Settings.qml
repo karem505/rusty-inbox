@@ -1035,7 +1035,8 @@ Rectangle {
                                     textFormat: Text.MarkdownText
                                     font.pixelSize: 13
                                     color: Theme.text
-                                    text: root.upd.method ? root.plainCode(root.upd.method.howTo) : ""
+                                    text: root.upd.method ? Theme.accentLinks(root.plainCode(root.upd.method.howTo)) : ""
+                                    onLinkActivated: (link) => Qt.openUrlExternally(link)
                                 }
                                 Text {
                                     Layout.fillWidth: true
@@ -1076,8 +1077,7 @@ Rectangle {
                                     textFormat: Text.MarkdownText
                                     font.pixelSize: 13
                                     color: Theme.text
-                                    linkColor: Theme.accent
-                                    text: root.upd.latest ? root.plainCode(root.upd.latest.notes) : ""
+                                    text: root.upd.latest ? Theme.accentLinks(root.plainCode(root.upd.latest.notes)) : ""
                                     onLinkActivated: (link) => Qt.openUrlExternally(link)
                                     HoverHandler { cursorShape: parent.hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor }
                                 }

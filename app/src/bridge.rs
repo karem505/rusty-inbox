@@ -15,6 +15,13 @@ pub mod qobject {
         fn rustyinbox_init_webengine();
     }
 
+    unsafe extern "C++" {
+        include!("cxx-qt-lib/qguiapplication.h");
+        type QGuiApplication = cxx_qt_lib::QGuiApplication;
+        include!("application.h");
+        fn rustyinbox_new_application(args: &[String]) -> UniquePtr<QGuiApplication>;
+    }
+
     extern "RustQt" {
         #[qobject]
         #[qml_element]
@@ -270,7 +277,7 @@ use core::pin::Pin;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 
-pub use qobject::rustyinbox_init_webengine;
+pub use qobject::{rustyinbox_init_webengine, rustyinbox_new_application};
 
 #[derive(Default)]
 pub struct BackendRust {

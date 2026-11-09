@@ -78,6 +78,18 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.2.1" date="2026-11-09">
+      <description>
+        <p>Bug fixes:</p>
+        <ul>
+          <li>KDE Plasma: the app no longer crashes at start, and the tray menu and the KDE file dialogs work</li>
+          <li>Theme "System" follows the desktop's light or dark mode outside Omarchy, and switches live</li>
+          <li>Quoted text in replies is readable on dark themes</li>
+          <li>Links in the daily briefing and in Settings, Updates use the theme's accent colour</li>
+          <li>Replace keeps the blank line before the quoted message and the signature</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-10-29">
       <description>
         <p>An optional AI assistant, with the model and provider you choose:</p>

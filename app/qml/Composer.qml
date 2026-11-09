@@ -642,6 +642,10 @@ Rectangle {
             + "#ed:empty:before{content:'" + qsTr("Write your message…").replace(/'/g, "\\'") + "';color:" + c(Theme.textMuted) + "}"
             + "#ed p{margin:0 0 .6em}a{color:" + c(Theme.accent) + "}"
             + "blockquote{margin:0 0 0 .8ex;border-left:2px solid " + c(Theme.border) + ";padding-left:1ex;color:" + c(Theme.textSubtle) + "}"
+            // the quoted original keeps the sender's colours in the HTML that is sent, but inside the editor
+            // it follows the theme: dark sender text on a dark theme was unreadable (issue #6)
+            + ".ri-quote,.ri-quote *{color:" + c(Theme.textSubtle) + "!important;background-color:transparent!important}"
+            + ".ri-quote a,.ri-quote a *{color:" + c(Theme.accent) + "!important}"
             + ".ri-signature{color:" + c(Theme.textMuted) + "}img{max-width:100%}"
             + "</style></head><body><div id='ed' contenteditable='true'></div><script>"
             + "const ed=document.getElementById('ed');let n=0;"
@@ -654,8 +658,17 @@ Rectangle {
             + "function walk(n){if(n.nodeType===3){out+=n.data.replace(/\\u00a0/g,' ');return}if(n.nodeType!==1)return;if(n.tagName==='BR'){out+='\\n';return}"
             + "const b=blk.test(n.tagName);if(b&&out&&!out.endsWith('\\n'))out+='\\n';n.childNodes.forEach(walk);if(b&&out){if(n.tagName==='P'){if(!out.endsWith('\\n\\n'))out+=out.endsWith('\\n')?'\\n':'\\n\\n'}else if(!out.endsWith('\\n'))out+='\\n'}}"
             + "ownNodes().forEach(walk);return out.replace(/\\n{3,}/g,'\\n\\n').trim();}"
+            // Replace selects from the first to the last position INSIDE the user's own blocks: a range that
+            // ends on the block boundary before the signature/quote makes Blink merge the next block into the
+            // deletion, which ate the blank line before "On … wrote:" and the signature (issue #8)
             + "function applyOwn(h,mode){const m=ownMarker();ed.focus();const s=getSelection();const r=document.createRange();"
-            + "if(mode==='replace'){r.setStart(ed,0);if(m)r.setEndBefore(m);else r.setEnd(ed,ed.childNodes.length);}else{if(m)r.setStartBefore(m);else r.setStart(ed,ed.childNodes.length);r.collapse(true);}"
+            + "if(mode==='replace'){const own=ownNodes();"
+            + "const first=x=>{while(x&&x.nodeType===1&&x.firstChild&&x.tagName!=='BR')x=x.firstChild;return x};"
+            + "const last=x=>{while(x&&x.nodeType===1&&x.lastChild&&x.tagName!=='BR')x=x.lastChild;return x};"
+            + "if(own.length){const a=first(own[0]),b=last(own[own.length-1]);"
+            + "if(a.nodeType===3)r.setStart(a,0);else r.setStartBefore(a);if(b.nodeType===3)r.setEnd(b,b.data.length);else r.setEndAfter(b);}"
+            + "else{r.setStart(ed,0);r.collapse(true);}}"
+            + "else{if(m)r.setStartBefore(m);else r.setStart(ed,ed.childNodes.length);r.collapse(true);}"
             + "s.removeAllRanges();s.addRange(r);document.execCommand('insertHTML',false,h);document.title='dirty:'+(n++);}"
             + "function focusStart(){ed.focus();const r=document.createRange();r.setStart(ed,0);r.collapse(true);const s=getSelection();s.removeAllRanges();s.addRange(r);}"
             + "function report(){const k=['bold','italic','underline','strikeThrough','insertUnorderedList','insertOrderedList'];document.title='fmt:'+k.map(c=>document.queryCommandState(c)?1:0).join('')+':'+(n++);}"

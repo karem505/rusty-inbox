@@ -41,6 +41,19 @@ QtObject {
         return avatars[h % avatars.length]
     }
 
+    // Markdown for a Text with Text.MarkdownText, with every link drawn in the accent colour. Qt applies
+    // `linkColor` only to plain and styled text; Markdown and rich text take Qt's default link blue,
+    // which is unreadable on dark themes (issue #7). An inline-styled <a> is honoured, so links become that.
+    function accentLinks(md) {
+        const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        const a = (href, label) => "<a href=\"" + esc(href) + "\" style=\"color:" + String(accent) + "\">" + label + "</a>"
+        return String(md || "")
+            .replace(/(!?)\[([^\]\n]+)\]\(<?([^)\s>]+)>?(?:\s+"[^"]*")?\)/g, (m, bang, label, href) => bang ? m : a(href, label))
+            .replace(/<((?:https?|mailto):[^>\s]+)>/g, (m, href) => a(href, esc(href)))
+            .replace(/(^|[\s(])((?:https?:\/\/|www\.)[^\s<>()]+[^\s<>().,;:!?'"])/gm, (m, pre, href, at, all) =>
+                pre === "(" && all[at - 1] === "]" ? m : pre + a(href.indexOf("www.") === 0 ? "https://" + href : href, esc(href)))
+    }
+
     function apply(p) {
         if (!p) return
         for (const k in p) {

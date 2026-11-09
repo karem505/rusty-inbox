@@ -110,7 +110,7 @@ Already installed? `flatpak update` brings the new version. Run it with
 |---|---|
 | **Linux (recommended)** | Flatpak, the command above (updates with `flatpak update`) |
 | **Linux (other options)** | AppImage, Flatpak bundle or tarball from [Releases](https://github.com/karem505/rusty-inbox/releases) |
-| **Arch Linux** | `makepkg -si` in [`packaging/aur/rusty-inbox`](packaging/aur/rusty-inbox) (from source) or [`rusty-inbox-bin`](packaging/aur/rusty-inbox-bin); AUR listing coming |
+| **Arch Linux** | `yay -S rusty-inbox` ([AUR](https://aur.archlinux.org/packages/rusty-inbox), community package, builds from source), or `makepkg -si` in [`packaging/aur/rusty-inbox-bin`](packaging/aur/rusty-inbox-bin) for the prebuilt binary |
 | **Windows 10/11** | Installer (`.exe`) or portable `.zip` from [Releases](https://github.com/karem505/rusty-inbox/releases) |
 | **macOS 12+** | `.dmg` (Apple Silicon and Intel) from [Releases](https://github.com/karem505/rusty-inbox/releases) |
 

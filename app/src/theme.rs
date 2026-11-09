@@ -187,8 +187,106 @@ fn builtin(mode: &str) -> Value {
     }
 }
 
+// ---- the desktop's colour scheme ------------------------------------------------------------
+
+/// Whether the desktop prefers a dark scheme: `RUSTY_INBOX_COLOR_SCHEME` (dark/light, for tests),
+/// else the XDG desktop portal's `org.freedesktop.appearance color-scheme` (1 dark, 2 light, 0 none),
+/// which GNOME, KDE Plasma, COSMIC and Flatpak all provide. None when there is no preference.
+pub fn desktop_prefers_dark() -> Option<bool> {
+    if let Ok(v) = std::env::var("RUSTY_INBOX_COLOR_SCHEME") {
+        return match v.as_str() {
+            "dark" => Some(true),
+            "light" => Some(false),
+            _ => None,
+        };
+    }
+    portal::color_scheme().and_then(scheme_is_dark)
+}
+
+/// The portal's color-scheme value: 1 = prefer dark, 2 = prefer light, anything else = no preference.
+pub fn scheme_is_dark(v: u32) -> Option<bool> {
+    match v {
+        1 => Some(true),
+        2 => Some(false),
+        _ => None,
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+mod portal {
+    use std::time::Duration;
+    use zbus::blocking::{Connection, MessageIterator};
+    use zbus::zvariant::{OwnedValue, Value};
+
+    const DEST: &str = "org.freedesktop.portal.Desktop";
+    const PATH: &str = "/org/freedesktop/portal/desktop";
+    const IFACE: &str = "org.freedesktop.portal.Settings";
+
+    fn as_u32(v: &Value) -> Option<u32> {
+        match v {
+            Value::U32(n) => Some(*n),
+            // the older `Read` wraps the value in one more variant
+            Value::Value(inner) => as_u32(inner),
+            _ => None,
+        }
+    }
+
+    fn read(conn: &Connection) -> Option<u32> {
+        let args = ("org.freedesktop.appearance", "color-scheme");
+        let reply = conn
+            .call_method(Some(DEST), PATH, Some(IFACE), "ReadOne", &args)
+            .or_else(|_| conn.call_method(Some(DEST), PATH, Some(IFACE), "Read", &args))
+            .ok()?;
+        let v: OwnedValue = reply.body().deserialize().ok()?;
+        as_u32(&v)
+    }
+
+    /// One read, bounded: a portal that has to be D-Bus-activated must not hold up start-up.
+    pub fn color_scheme() -> Option<u32> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::Builder::new()
+            .name("color-scheme".into())
+            .spawn(move || {
+                let _ = tx.send(Connection::session().ok().and_then(|c| read(&c)));
+            })
+            .ok()?;
+        rx.recv_timeout(Duration::from_millis(800)).ok().flatten()
+    }
+
+    /// Call `changed` with the new value each time the desktop switches scheme (the portal's
+    /// `SettingChanged` signal). Returns at once; listens on its own thread.
+    pub fn watch(changed: impl Fn(Option<u32>) + Send + 'static) {
+        let _ = std::thread::Builder::new().name("color-scheme-watch".into()).spawn(move || {
+            let Ok(conn) = Connection::session() else { return };
+            let Ok(rule) = zbus::MatchRule::builder()
+                .msg_type(zbus::message::Type::Signal)
+                .interface(IFACE)
+                .and_then(|b| b.member("SettingChanged"))
+                .map(|b| b.build())
+            else {
+                return;
+            };
+            let Ok(signals) = MessageIterator::for_match_rule(rule, &conn, Some(16)) else { return };
+            for msg in signals.flatten() {
+                let Ok((ns, key, value)) = msg.body().deserialize::<(String, String, OwnedValue)>() else { continue };
+                if ns == "org.freedesktop.appearance" && key == "color-scheme" {
+                    changed(as_u32(&value));
+                }
+            }
+        });
+    }
+}
+
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+mod portal {
+    pub fn color_scheme() -> Option<u32> {
+        None
+    }
+    pub fn watch(_changed: impl Fn(Option<u32>) + Send + 'static) {}
+}
+
 /// The current palette: the forced mode from Settings, else the first existing Omarchy theme
-/// file, else the built-in light palette.
+/// file, else the built-in palette matching the desktop's light/dark preference.
 pub fn current() -> Value {
     let mode = mode_cell().lock().unwrap().clone();
     if mode == "light" || mode == "dark" {
@@ -202,6 +300,10 @@ pub fn current() -> Value {
             }
         }
     }
+    if desktop_prefers_dark() == Some(true) {
+        let c: HashMap<String, String> = DARK.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        return palette(&c, None, "built-in dark (desktop)");
+    }
     palette(&HashMap::new(), None, "built-in")
 }
 
@@ -209,8 +311,12 @@ fn stamp() -> Option<(PathBuf, SystemTime)> {
     theme_files().into_iter().find_map(|f| std::fs::metadata(&f).and_then(|m| m.modified()).ok().map(|t| (f, t)))
 }
 
-/// Call `changed` with the new palette whenever the theme file changes (checked every second).
-pub fn watch(changed: impl Fn(Value) + Send + 'static) {
+/// Call `changed` with the new palette whenever the theme file changes (checked every second) or the
+/// desktop switches between light and dark.
+pub fn watch(changed: impl Fn(Value) + Send + Sync + 'static) {
+    let changed = std::sync::Arc::new(changed);
+    let on_scheme = changed.clone();
+    portal::watch(move |_| on_scheme(current()));
     std::thread::Builder::new()
         .name("theme-watch".into())
         .spawn(move || {
@@ -367,8 +473,78 @@ red = "#ea6962"
         assert!(luminance("#ffffff") > 0.99 && luminance("#000000") < 0.01);
     }
 
+    /// `current()` reads process-wide env vars; tests that set them run one at a time.
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static L: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        L.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    #[test]
+    fn portal_color_scheme_values() {
+        assert_eq!(scheme_is_dark(1), Some(true));
+        assert_eq!(scheme_is_dark(2), Some(false));
+        assert_eq!(scheme_is_dark(0), None);
+        assert_eq!(scheme_is_dark(7), None);
+    }
+
+    #[test]
+    fn system_mode_follows_the_desktop_scheme_without_omarchy() {
+        let _g = env_lock();
+        let missing = std::env::temp_dir().join(format!("rustyinbox-no-theme-{}/colors.toml", std::process::id()));
+        std::env::set_var("RUSTY_INBOX_THEME_FILE", &missing);
+        set_mode("system");
+        std::env::set_var("RUSTY_INBOX_COLOR_SCHEME", "dark");
+        let dark = current();
+        std::env::set_var("RUSTY_INBOX_COLOR_SCHEME", "light");
+        let light = current();
+        std::env::set_var("RUSTY_INBOX_COLOR_SCHEME", "none");
+        let none = current();
+        std::env::remove_var("RUSTY_INBOX_COLOR_SCHEME");
+        std::env::remove_var("RUSTY_INBOX_THEME_FILE");
+        assert_eq!(dark["dark"], true);
+        assert_eq!(dark["window"], DARK.iter().find(|(k, _)| *k == "background").unwrap().1);
+        assert_eq!(light["dark"], false);
+        assert_eq!(none["dark"], false);
+    }
+
+    #[test]
+    fn an_omarchy_theme_still_wins_over_the_desktop_scheme() {
+        let _g = env_lock();
+        let dir = std::env::temp_dir().join(format!("rustyinbox-theme-wins-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("colors.toml");
+        std::fs::write(&f, GRUVBOX).unwrap();
+        std::env::set_var("RUSTY_INBOX_THEME_FILE", &f);
+        std::env::set_var("RUSTY_INBOX_COLOR_SCHEME", "light");
+        set_mode("system");
+        let p = current();
+        std::env::remove_var("RUSTY_INBOX_COLOR_SCHEME");
+        std::env::remove_var("RUSTY_INBOX_THEME_FILE");
+        assert_eq!(p["window"], "#282828");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Against a real portal: `RUSTY_INBOX_PORTAL_PROBE=<first>,<after>` names the color-scheme values
+    /// a portal on the session bus reports at start and after its first SettingChanged. Run it on a
+    /// private bus with a fake portal (`dbus-run-session`); ignored in normal runs.
+    #[test]
+    #[ignore]
+    fn live_portal_read_and_change() {
+        let spec = std::env::var("RUSTY_INBOX_PORTAL_PROBE").expect("RUSTY_INBOX_PORTAL_PROBE=<first>,<after>");
+        let (first, after) = spec.split_once(',').unwrap();
+        let (first, after): (u32, u32) = (first.parse().unwrap(), after.parse().unwrap());
+        assert_eq!(portal::color_scheme(), Some(first));
+        let (tx, rx) = std::sync::mpsc::channel();
+        portal::watch(move |v| {
+            let _ = tx.send(v);
+        });
+        assert_eq!(rx.recv_timeout(Duration::from_secs(6)).unwrap(), Some(after));
+        assert_eq!(portal::color_scheme(), Some(after));
+    }
+
     #[test]
     fn current_reads_the_file_named_by_env() {
+        let _g = env_lock();
         let dir = std::env::temp_dir().join(format!("rustyinbox-theme-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("colors.toml");

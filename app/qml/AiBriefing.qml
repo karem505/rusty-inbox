@@ -101,12 +101,11 @@ Rectangle {
             width: Math.min(760, flick.width - 48)
             visible: (info.markdown || "") !== ""
             textFormat: Text.MarkdownText
-            text: info.markdown || ""
+            text: Theme.accentLinks(info.markdown)
             wrapMode: Text.Wrap
             font.pixelSize: 14
             lineHeight: 1.25
             color: Theme.text
-            linkColor: Theme.accent
             opacity: root.loading ? 0.45 : 1
             Behavior on opacity { NumberAnimation { duration: Theme.normal; easing.type: Theme.easing } }
             onLinkActivated: (link) => {
