@@ -40,6 +40,19 @@ pub enum Method {
     Source,
 }
 
+/// The processor name in the Linux AppImage and tarball names, for the processors releases are built for.
+pub fn linux_arch() -> Option<&'static str> {
+    linux_arch_for(std::env::consts::ARCH)
+}
+
+fn linux_arch_for(arch: &str) -> Option<&'static str> {
+    match arch {
+        "x86_64" => Some("x86_64"),
+        "aarch64" => Some("aarch64"),
+        _ => None,
+    }
+}
+
 impl Method {
     pub fn id(&self) -> &'static str {
         match self {
@@ -75,7 +88,7 @@ impl Method {
     /// The app can download and apply the update itself.
     pub fn can_install(&self) -> bool {
         match self {
-            Method::AppImage(_) | Method::Binary(_) => std::env::consts::ARCH == "x86_64",
+            Method::AppImage(_) | Method::Binary(_) => linux_arch().is_some(),
             Method::WindowsInstaller | Method::MacDmg => true,
             _ => false,
         }
@@ -98,8 +111,8 @@ impl Method {
     /// Release asset this install method needs for `v`.
     pub fn asset_name(&self, v: &Version) -> Option<String> {
         match self {
-            Method::AppImage(_) => Some(format!("rusty-inbox-{v}-x86_64.AppImage")),
-            Method::Binary(_) => Some(format!("rusty-inbox-{v}-linux-x86_64.tar.gz")),
+            Method::AppImage(_) => Some(format!("rusty-inbox-{v}-{}.AppImage", linux_arch()?)),
+            Method::Binary(_) => Some(format!("rusty-inbox-{v}-linux-{}.tar.gz", linux_arch()?)),
             Method::WindowsInstaller => Some(format!("rusty-inbox-{v}-windows-x64-setup.exe")),
             Method::MacDmg => {
                 let arch = if std::env::consts::ARCH == "aarch64" { "arm64" } else { "x86_64" };
@@ -693,6 +706,14 @@ mod tests {
         assert_eq!(checksum_for(sums, "rusty-inbox-1.0.0.dmg"), None);
     }
 
+    #[test]
+    fn linux_builds_exist_for_x86_64_and_aarch64_only() {
+        assert_eq!(linux_arch_for("x86_64"), Some("x86_64"));
+        assert_eq!(linux_arch_for("aarch64"), Some("aarch64"));
+        assert_eq!(linux_arch_for("riscv64"), None);
+        assert_eq!(linux_arch_for("x86"), None);
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn install_types_are_recognised() {
@@ -702,8 +723,9 @@ mod tests {
         let exe = d.join("rusty-inbox");
         assert_eq!(detect_for(&exe), Method::Binary(exe.clone()));
         let v = Version::new(1, 2, 3);
-        assert_eq!(Method::Binary(exe).asset_name(&v).unwrap(), "rusty-inbox-1.2.3-linux-x86_64.tar.gz");
-        assert_eq!(Method::AppImage("/a".into()).asset_name(&v).unwrap(), "rusty-inbox-1.2.3-x86_64.AppImage");
+        let a = linux_arch().expect("tests run on x86_64 or aarch64");
+        assert_eq!(Method::Binary(exe).asset_name(&v).unwrap(), format!("rusty-inbox-1.2.3-linux-{a}.tar.gz"));
+        assert_eq!(Method::AppImage("/a".into()).asset_name(&v).unwrap(), format!("rusty-inbox-1.2.3-{a}.AppImage"));
         assert!(Method::Flatpak.asset_name(&v).is_none() && !Method::Flatpak.can_install());
     }
 
