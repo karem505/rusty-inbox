@@ -58,8 +58,8 @@ case "$OS" in
   *) die "unsupported OS: $OS (on Windows use scripts/install.ps1)" ;;
 esac
 case "$MACHINE" in
-  x86_64|amd64) ARCH=x86_64 ;;
-  arm64|aarch64) ARCH=arm64 ;;
+  x86_64|amd64) ARCH=x86_64 LINUX_ARCH=x86_64 ;;
+  arm64|aarch64) ARCH=arm64 LINUX_ARCH=aarch64 ;;
   *) die "unsupported architecture: $MACHINE" ;;
 esac
 
@@ -164,8 +164,7 @@ icons_from_repo() { # fetch the icon set from the tagged source archive
 }
 
 install_appimage() {
-  [ "$ARCH" = x86_64 ] || die "the AppImage is only built for x86_64; try --method source or flatpak"
-  name="rusty-inbox-$VERSION-x86_64.AppImage"
+  name="rusty-inbox-$VERSION-$LINUX_ARCH.AppImage"
   mkdir -p "$LIB_DIR" "$BIN_DIR"
   tmp="$LIB_DIR/$name.part"
   say "Downloading $name"
@@ -187,8 +186,7 @@ install_appimage() {
 }
 
 install_tarball() {
-  [ "$ARCH" = x86_64 ] || die "the tarball is only built for x86_64"
-  name="rusty-inbox-$VERSION-linux-x86_64"
+  name="rusty-inbox-$VERSION-linux-$LINUX_ARCH"
   tmp="$(mktemp -d)"
   fetch "$(asset_url "$name.tar.gz")" "$tmp/t.tar.gz" || { rm -rf "$tmp"; die "download failed"; }
   tar -xzf "$tmp/t.tar.gz" -C "$tmp"

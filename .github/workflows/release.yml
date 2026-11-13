@@ -37,11 +37,24 @@ jobs:
 
   linux:
     needs: prepare
-    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-22.04
+            qt_host: linux
+            qt_arch: linux_gcc_64
+          - arch: aarch64
+            runner: ubuntu-22.04-arm
+            qt_host: linux_arm64
+            qt_arch: linux_gcc_arm64
+    runs-on: ${{ matrix.runner }}
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
+      ARCH: ${{ matrix.arch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: System libraries
         run: |
           sudo -S -p '' apt-get update
@@ -52,10 +65,14 @@ jobs:
       - uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.QT_VERSION }}
+          host: ${{ matrix.qt_host }}
+          arch: ${{ matrix.qt_arch }}
           modules: qtwebengine qtwebchannel qtpositioning qtserialport
           cache: true
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.arch }}
       - name: Build
         run: cargo build --release -p rusty-inbox
       - name: Smoke test binary
@@ -65,7 +82,7 @@ jobs:
           [ "$out" = "rusty-inbox $VERSION" ]
       - name: Tarball (system Qt)
         run: |
-          d="rusty-inbox-$VERSION-linux-x86_64"
+          d="rusty-inbox-$VERSION-linux-$ARCH"
           mkdir -p "dist/$d/icons"
           cp target/release/rusty-inbox "dist/$d/"
           cp app/packaging/rusty-inbox.desktop app/packaging/install-user.sh LICENSE-MIT LICENSE-APACHE README.md "dist/$d/"
@@ -80,26 +97,25 @@ jobs:
           EXTRA_PLATFORM_PLUGINS: "libqoffscreen.so;libqwayland-egl.so;libqwayland-generic.so"
           DEPLOY_PLATFORM_THEMES: "1"
           NO_STRIP: "1"
-          ARCH: x86_64
         run: |
           mkdir -p tools-bin && cd tools-bin
-          curl -fsSL --retry 3 -O https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          curl -fsSL --retry 3 -O https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          curl -fsSL --retry 3 -O "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-$ARCH.AppImage"
+          curl -fsSL --retry 3 -O "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-$ARCH.AppImage"
           chmod +x ./*.AppImage
           cd ..
           export PATH="$PWD/tools-bin:$PATH"
           export QMAKE="$(command -v qmake)"
           rm -rf AppDir
           cp app/packaging/icons/rusty-inbox-256.png rusty-inbox.png
-          linuxdeploy-x86_64.AppImage --appdir AppDir \
+          "linuxdeploy-$ARCH.AppImage" --appdir AppDir \
             --executable target/release/rusty-inbox \
             --desktop-file app/packaging/rusty-inbox.desktop \
             --icon-file app/packaging/icons/rusty-inbox-256.png --icon-filename rusty-inbox \
             --plugin qt --output appimage
-          mv Rusty_Inbox-*.AppImage "dist/rusty-inbox-$VERSION-x86_64.AppImage" 2>/dev/null || mv ./*.AppImage "dist/rusty-inbox-$VERSION-x86_64.AppImage"
+          mv Rusty_Inbox-*.AppImage "dist/rusty-inbox-$VERSION-$ARCH.AppImage" 2>/dev/null || mv ./*.AppImage "dist/rusty-inbox-$VERSION-$ARCH.AppImage"
       - name: Inspect AppImage contents
         run: |
-          cd dist && chmod +x ./*.AppImage && ./rusty-inbox-$VERSION-x86_64.AppImage --appimage-extract >/dev/null
+          cd dist && chmod +x ./*.AppImage && "./rusty-inbox-$VERSION-$ARCH.AppImage" --appimage-extract >/dev/null
           find squashfs-root -name 'QtWebEngineProcess' -o -name 'qtwebengine_resources.pak' -o -name 'qtwebengine_locales' -o -name 'icudtl.dat' | head
           du -sh squashfs-root
           rm -rf squashfs-root
@@ -112,7 +128,7 @@ jobs:
           # the packaged app must not see the runner's Qt
           unset QT_PLUGIN_PATH QML2_IMPORT_PATH QT_ROOT_DIR LD_LIBRARY_PATH
           export PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '/Qt/' | paste -sd: -)
-          app="$PWD/dist/rusty-inbox-$VERSION-x86_64.AppImage"
+          app="$PWD/dist/rusty-inbox-$VERSION-$ARCH.AppImage"
           out=$("$app" --appimage-extract-and-run --version)
           echo "$out"
           [ "$out" = "rusty-inbox $VERSION" ]
@@ -120,9 +136,9 @@ jobs:
           RUSTY_INBOX_DATA_DIR="$data" timeout 300 "$app" --appimage-extract-and-run --autotest="$shots"
           ls "$shots"
           ls "$shots"/*.png >/dev/null
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
-          name: linux
+          name: linux-${{ matrix.arch }}
           path: |
             dist/*.AppImage
             dist/*.tar.gz
@@ -137,7 +153,7 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.QT_VERSION }}
@@ -205,7 +221,7 @@ jobs:
           if ($out -ne "rusty-inbox $env:VERSION") { throw "installed exe: $out" }
           $un = Get-ChildItem $dir -Filter "unins*.exe" | Select-Object -First 1
           Start-Process $un.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES" -Wait
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: out/*
@@ -226,7 +242,7 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       MACOSX_DEPLOYMENT_TARGET: "12.0"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.QT_VERSION }}
@@ -293,7 +309,7 @@ jobs:
           "$mnt/Rusty Inbox.app/Contents/MacOS/rusty-inbox" --version
           hdiutil detach "$mnt" -quiet
           ls -l out
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos-${{ matrix.arch }}
           path: out/*.dmg
@@ -306,12 +322,12 @@ jobs:
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Release notes
         run: |
           # docs/releases/<version>.md, when written, becomes the release text
           if [ -f "docs/releases/$VERSION.md" ]; then cp "docs/releases/$VERSION.md" release-notes.md; else : > release-notes.md; fi
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
@@ -320,7 +336,7 @@ jobs:
           cd artifacts
           sha256sum rusty-inbox-* > SHA256SUMS
           cat SHA256SUMS
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           name: Rusty Inbox ${{ needs.prepare.outputs.version }}
           # a manual publish creates the tag on the commit that was built

@@ -1,8 +1,11 @@
 name: Flatpak
 
-# Builds the Flatpak on every release tag: attaches the .flatpak bundle to the GitHub Release and
-# publishes a signed Flatpak repository on GitHub Pages:
+# Builds the Flatpak for x86_64 and aarch64 and merges both into one signed Flatpak repository.
+# On a release tag it attaches both .flatpak bundles to the GitHub Release and publishes the
+# repository on GitHub Pages:
 #   flatpak install --user https://karem505.github.io/rusty-inbox/rusty-inbox.flatpakref
+# A manual run (workflow_dispatch) builds, merges and checks everything but publishes nothing, so a
+# test run from a branch can never replace the repository users update from.
 on:
   push:
     tags: ["v*"]
@@ -12,9 +15,10 @@ permissions:
   contents: write
   pages: write
   id-token: write
+  actions: read
 
 concurrency:
-  group: flatpak-pages
+  group: flatpak-${{ startsWith(github.ref, 'refs/tags/v') && 'pages' || github.ref }}
   cancel-in-progress: false
 
 env:
@@ -23,17 +27,25 @@ env:
 
 jobs:
   flatpak:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.11
       options: --privileged
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Bundle name
         id: v
         run: |
           VER=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')
-          echo "bundle=rusty-inbox-${VER}-x86_64.flatpak" >> "$GITHUB_OUTPUT"
+          echo "bundle=rusty-inbox-${VER}-${{ matrix.arch }}.flatpak" >> "$GITHUB_OUTPUT"
       - name: Import the repository signing key
         env:
           KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
@@ -44,24 +56,74 @@ jobs:
         with:
           bundle: ${{ steps.v.outputs.bundle }}
           manifest-path: packaging/flatpak/io.github.karem505.rusty-inbox.yml
-          arch: x86_64
+          arch: ${{ matrix.arch }}
           branch: stable
           gpg-sign: ${{ secrets.FLATPAK_GPG_KEY_ID }}
-          cache-key: flatpak-builder-${{ github.sha }}
+          cache-key: flatpak-builder-${{ matrix.arch }}-${{ github.sha }}
           restore-cache: true
-      - name: Attach to the GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+          upload-artifact: false
+      - name: Pack the repository
+        run: |
+          set -eu
+          ls -d repo/objects
+          ls -l "${{ steps.v.outputs.bundle }}"
+          tar -cf "flatpak-repo-${{ matrix.arch }}.tar" repo
+      - uses: actions/upload-artifact@v7
         with:
-          files: ${{ steps.v.outputs.bundle }}
-      - name: Signed repository site
+          name: flatpak-${{ matrix.arch }}
+          path: |
+            ${{ steps.v.outputs.bundle }}
+            flatpak-repo-${{ matrix.arch }}.tar
+          if-no-files-found: error
+          retention-days: 7
+
+  repository:
+    needs: flatpak
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.11
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: flatpak-*
+          merge-multiple: true
+      - name: Import the repository signing key
+        env:
+          KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+        run: |
+          printf '%s\n' "$KEY" | gpg --batch --import
+          gpg --list-secret-keys --keyid-format long | grep -c sec
+      - name: One signed repository with both architectures
         env:
           KEY_ID: ${{ secrets.FLATPAK_GPG_KEY_ID }}
         run: |
           set -eu
-          ls -d repo/objects
+          ls -l
+          ostree --repo=repo init --mode=archive-z2
+          for t in flatpak-repo-*.tar; do
+            d="${t%.tar}"
+            mkdir -p "$d"
+            tar -xf "$t" -C "$d"
+            ostree --repo=repo pull-local "$d/repo"
+            rm -rf "$d" "$t"
+          done
           flatpak build-update-repo --gpg-sign="$KEY_ID" --default-branch=stable \
             --title="Rusty Inbox" --homepage=https://github.com/karem505/rusty-inbox repo
+          ostree --repo=repo refs | sort
+          # the app for both architectures, each commit signed with the repository key
+          for a in x86_64 aarch64; do
+            ref="app/$APP_ID/$a/stable"
+            ostree --repo=repo refs | grep -qx "$ref" || { echo "missing $ref"; exit 1; }
+            ostree --repo=repo show "$ref" > show.txt 2>&1 || true
+            cat show.txt
+            grep -q "Found [1-9] signature" show.txt || { echo "unsigned commit: $ref"; exit 1; }
+          done
+          rm -f show.txt
+      - name: Repository site
+        run: |
+          set -eu
           mkdir -p _site
           cp -a repo _site/repo
           KEY_B64=$(base64 -w0 packaging/flatpak/repo/rusty-inbox.gpg)
@@ -104,16 +166,24 @@ jobs:
           touch _site/.nojekyll
           du -sh _site _site/repo
           find _site -type f -size +95M -print
-      - uses: actions/upload-pages-artifact@v3
+      - name: Attach both bundles to the GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: rusty-inbox-*.flatpak
+          fail_on_unmatched_files: true
+      - uses: actions/upload-pages-artifact@v5
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
           path: _site
 
   pages:
-    needs: flatpak
-    runs-on: ubuntu-latest
+    needs: repository
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
