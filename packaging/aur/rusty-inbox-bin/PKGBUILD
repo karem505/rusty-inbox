@@ -1,10 +1,10 @@
 # Maintainer: Karem Aboelmakarem <karem505 at github>
 pkgname=rusty-inbox-bin
 _pkgname=rusty-inbox
-pkgver=0.2.1
+pkgver=0.2.2
 pkgrel=1
 pkgdesc="Fast native email client: Rust IMAP/SMTP engine, Qt 6 QML interface (prebuilt binary)"
-arch=('x86_64')
+arch=('x86_64' 'aarch64')
 url="https://github.com/karem505/rusty-inbox"
 license=('MIT OR Apache-2.0')
 depends=('qt6-base' 'qt6-declarative' 'qt6-webengine' 'qt6-svg' 'gcc-libs' 'glibc' 'hicolor-icon-theme')
@@ -12,11 +12,13 @@ optdepends=('xdg-utils: open links and make Rusty Inbox the mailto handler')
 provides=("$_pkgname")
 conflicts=("$_pkgname")
 options=('!strip' '!debug')
-source=("$_pkgname-$pkgver-linux-x86_64.tar.gz::$url/releases/download/v$pkgver/$_pkgname-$pkgver-linux-x86_64.tar.gz")
-sha256sums=('0b917cc0632868278e1bfc6a1984c84f705abc7d3d9bdcabdbe8a1275f277d51')
+source_x86_64=("$_pkgname-$pkgver-linux-x86_64.tar.gz::$url/releases/download/v$pkgver/$_pkgname-$pkgver-linux-x86_64.tar.gz")
+source_aarch64=("$_pkgname-$pkgver-linux-aarch64.tar.gz::$url/releases/download/v$pkgver/$_pkgname-$pkgver-linux-aarch64.tar.gz")
+sha256sums_x86_64=('a75469e12c16dcc96a6f5d9779767b0cb3dd0b3e1c8d1ca31cf6f33c4d973766')
+sha256sums_aarch64=('744a1f49ba15c8542bb8aaa0d0923a585ef83002aea2cc7a4b7af718b0ea022f')
 
 package() {
-  cd "$_pkgname-$pkgver-linux-x86_64"
+  cd "$_pkgname-$pkgver-linux-$CARCH"
   install -Dm755 rusty-inbox "$pkgdir/usr/bin/rusty-inbox"
   install -Dm644 rusty-inbox.desktop "$pkgdir/usr/share/applications/rusty-inbox.desktop"
   for s in 16 22 24 32 48 64 96 128 256 512; do
