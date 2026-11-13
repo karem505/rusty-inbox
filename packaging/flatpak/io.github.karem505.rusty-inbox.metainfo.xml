@@ -78,6 +78,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.2.2" date="2026-11-13">
+      <description>
+        <p>Linux on 64-bit ARM (aarch64): the Flatpak, an AppImage and a tarball, which update themselves like the x86_64 builds.</p>
+      </description>
+    </release>
     <release version="0.2.1" date="2026-11-09">
       <description>
         <p>Bug fixes:</p>

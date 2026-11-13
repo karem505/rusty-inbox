@@ -110,10 +110,10 @@ Already installed? `flatpak update` brings the new version. Run it with
 
 | Platform | Package |
 |---|---|
-| **Linux (recommended)** | Flatpak, the command above (updates with `flatpak update`) |
-| **Linux (other options)** | AppImage, Flatpak bundle or tarball from [Releases](https://github.com/karem505/rusty-inbox/releases) |
+| **Linux (recommended)** | Flatpak, the command above, for x86_64 and ARM64 (updates with `flatpak update`) |
+| **Linux (other options)** | AppImage, Flatpak bundle or tarball for x86_64 or aarch64 from [Releases](https://github.com/karem505/rusty-inbox/releases) (the aarch64 AppImage needs glibc 2.39+) |
 | **Arch Linux** | `yay -S rusty-inbox` ([AUR](https://aur.archlinux.org/packages/rusty-inbox), community package, builds from source), or `makepkg -si` in [`packaging/aur/rusty-inbox-bin`](packaging/aur/rusty-inbox-bin) for the prebuilt binary |
-| **Windows 10/11** | Installer (`.exe`) or portable `.zip` from [Releases](https://github.com/karem505/rusty-inbox/releases) |
+| **Windows 10/11** | Installer (`.exe`) or portable `.zip` from [Releases](https://github.com/karem505/rusty-inbox/releases) (x64; runs on Windows on ARM through emulation) |
 | **macOS 12+** | `.dmg` (Apple Silicon and Intel) from [Releases](https://github.com/karem505/rusty-inbox/releases) |
 
 ### One-line install and update (Linux, macOS)
