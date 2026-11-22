@@ -683,44 +683,206 @@ Rectangle {
                         id: form
                         visible: root.page === "addAccount"
                         Layout.fillWidth: true
-                        spacing: 12
+                        spacing: 14
+
+                        property string provider: "gmail" // "gmail", "outlook", "custom"
+
                         function clear() {
                             fName.text = ""; fEmail.text = ""; fPass.text = ""
                             fImap.text = ""; fImapPort.text = ""; fSmtp.text = ""; fSmtpPort.text = ""; fUser.text = ""
                             root.showManual = false
+                            provider = "gmail"
+                            applyProviderDefaults("gmail")
                         }
-                        readonly property string domain: fEmail.text.indexOf("@") > 0 ? fEmail.text.split("@")[1].toLowerCase() : ""
-                        readonly property bool isGmail: domain === "gmail.com" || domain === "googlemail.com"
-                        readonly property bool isMicrosoft: ["outlook.com", "hotmail.com", "live.com", "msn.com"].indexOf(domain) >= 0
+
+                        function applyProviderDefaults(p) {
+                            if (p === "gmail") {
+                                fImap.text = "imap.gmail.com"
+                                fImapPort.text = "993"
+                                imapSec.currentIndex = 0
+                                fSmtp.text = "smtp.gmail.com"
+                                fSmtpPort.text = "465"
+                                smtpSec.currentIndex = 0
+                            } else if (p === "outlook") {
+                                fImap.text = "outlook.office365.com"
+                                fImapPort.text = "993"
+                                imapSec.currentIndex = 0
+                                fSmtp.text = "smtp.office365.com"
+                                fSmtpPort.text = "587"
+                                smtpSec.currentIndex = 1
+                            } else {
+                                fImap.text = ""
+                                fImapPort.text = ""
+                                fSmtp.text = ""
+                                fSmtpPort.text = ""
+                            }
+                        }
+
+                        Component.onCompleted: applyProviderDefaults(provider)
+
                         Title { text: qsTr("Add account") }
                         Text {
                             Layout.fillWidth: true
-                            text: qsTr("Enter your email and password. The mail servers are found automatically; set them yourself under Server settings if your provider needs it.")
+                            text: qsTr("Choose your email provider. Gmail and Outlook.com require an app password:")
                             wrapMode: Text.Wrap
                             font.pixelSize: 13
                             color: Theme.textSubtle
                         }
-                        Field { id: fName; label: qsTr("Your name"); placeholder: qsTr("Shown to people you write to") }
-                        Field { id: fEmail; objectName: "fieldEmail"; label: qsTr("Email address"); placeholder: "name@example.com" }
-                        Field { id: fPass; label: qsTr("Password"); secret: true; placeholder: form.isGmail ? qsTr("Google app password") : "" }
-                        Rectangle {
-                            visible: form.isGmail || form.isMicrosoft
+
+                        // Provider Cards
+                        RowLayout {
                             Layout.fillWidth: true
-                            implicitHeight: tip.implicitHeight + 20
-                            radius: 8
-                            color: Theme.selected
-                            Text {
-                                id: tip
-                                anchors.fill: parent
-                                anchors.margins: 10
-                                wrapMode: Text.Wrap
-                                font.pixelSize: 12
-                                color: Theme.text
-                                text: form.isGmail
-                                    ? qsTr("Gmail: use an app password, not your normal password. Create one in your Google Account under Security → 2-Step Verification → App passwords.")
-                                    : qsTr("Outlook / Hotmail: use an app password from your Microsoft account security settings, with IMAP enabled.")
+                            spacing: 10
+
+                            Repeater {
+                                model: [
+                                    { id: "gmail", name: "Google Mail", sub: "Gmail / Workspace", color: "#EA4335" },
+                                    { id: "outlook", name: "Outlook.com", sub: "Outlook / Hotmail / M365", color: "#0078D4" },
+                                    { id: "custom", name: qsTr("Custom IMAP"), sub: qsTr("GMX, Web.de, own server"), color: Theme.accent }
+                                ]
+                                delegate: Rectangle {
+                                    id: provCard
+                                    required property var modelData
+                                    readonly property bool active: form.provider === modelData.id
+                                    Layout.fillWidth: true
+                                    implicitHeight: 56
+                                    radius: 9
+                                    color: active ? Theme.selected : (cardHov.hovered ? Theme.hover : Theme.surface)
+                                    border.color: active ? Theme.accent : Theme.border
+                                    border.width: active ? 2 : 1
+                                    Behavior on color { ColorAnimation { duration: 75 } }
+                                    Behavior on border.color { ColorAnimation { duration: 75 } }
+
+                                    Column {
+                                        anchors.centerIn: parent
+                                        spacing: 3
+                                        Row {
+                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            spacing: 7
+                                            Rectangle {
+                                                width: 8; height: 8; radius: 4
+                                                color: provCard.modelData.color
+                                                anchors.verticalCenter: parent.verticalCenter
+                                            }
+                                            Text {
+                                                text: provCard.modelData.name
+                                                font.pixelSize: 13
+                                                font.weight: provCard.active ? Font.DemiBold : Font.Normal
+                                                color: provCard.active ? Theme.textStrong : Theme.text
+                                                anchors.verticalCenter: parent.verticalCenter
+                                            }
+                                        }
+                                        Text {
+                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            text: provCard.modelData.sub
+                                            font.pixelSize: 11
+                                            color: Theme.textMuted
+                                        }
+                                    }
+
+                                    HoverHandler { id: cardHov; cursorShape: Qt.PointingHandCursor }
+                                    TapHandler {
+                                        onTapped: {
+                                            form.provider = provCard.modelData.id
+                                            form.applyProviderDefaults(provCard.modelData.id)
+                                        }
+                                    }
+                                }
                             }
                         }
+
+                        // Guidance box with step-by-step instructions & direct links
+                        Rectangle {
+                            Layout.fillWidth: true
+                            implicitHeight: guideCol.implicitHeight + 24
+                            radius: 10
+                            color: Theme.surface
+                            border.color: Theme.border
+                            border.width: 1
+
+                            ColumnLayout {
+                                id: guideCol
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                anchors.margins: 14
+                                spacing: 8
+
+                                Text {
+                                    text: form.provider === "gmail" ? qsTr("How to connect Gmail with an app password")
+                                        : form.provider === "outlook" ? qsTr("How to connect Outlook.com / Microsoft with an app password")
+                                        : qsTr("How to connect a custom IMAP / SMTP provider")
+                                    font.pixelSize: 13
+                                    font.weight: Font.DemiBold
+                                    color: Theme.textStrong
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.Wrap
+                                    textFormat: Text.MarkdownText
+                                    font.pixelSize: 12
+                                    lineHeight: 1.35
+                                    color: Theme.text
+                                    onLinkActivated: (url) => Qt.openUrlExternally(url)
+                                    HoverHandler { cursorShape: parent.hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor }
+                                    text: {
+                                        if (form.provider === "gmail") {
+                                            return qsTr("Google no longer allows regular passwords for external mail clients and requires an **App Password**:\n\n"
+                                                + "1. **2-Step Verification**: Make sure *2-Step Verification* is enabled in your Google account.\n"
+                                                + "2. **Generate an App Password**: Open <a href=\"https://myaccount.google.com/apppasswords\">myaccount.google.com/apppasswords</a>.\n"
+                                                + "3. Enter a name such as **Rusty Inbox** and click **Create**.\n"
+                                                + "4. Copy the generated **16-character code** (e.g. `abcd efgh ijkl mnop`) and paste it into the password field below (spaces are removed automatically).\n"
+                                                + "5. *Check IMAP:* In <a href=\"https://mail.google.com/mail/u/0/#settings/fwdandpop\">Gmail Settings</a> under *Forwarding and POP/IMAP*, make sure **Enable IMAP** is selected.")
+                                        } else if (form.provider === "outlook") {
+                                            return qsTr("Microsoft requires an **App Password** and IMAP access for external mail clients:\n\n"
+                                                + "1. **Generate an App Password**: Open <a href=\"https://account.live.com/proofs/AppPassword\">account.live.com/proofs/AppPassword</a>.\n"
+                                                + "2. Under *App passwords*, click **Create a new app password** and copy it.\n"
+                                                + "3. Paste this password into the field below (not your regular Microsoft account password).\n"
+                                                + "4. *Enable IMAP:* In <a href=\"https://outlook.live.com/mail/0/options/mail/accounts\">Outlook.com Settings</a> under *Mail → Sync email*, make sure **Let devices and apps use POP/IMAP** is enabled.")
+                                        } else {
+                                            return qsTr("Enter your name, email address and password:\n\n"
+                                                + "• Common providers (such as GMX, Web.de, Yahoo, iCloud, Mailbox.org, etc.) are detected automatically.\n"
+                                                + "• If your server uses custom hostnames or ports, you can enter them under **Server settings** below.\n"
+                                                + "• *Tip:* Some providers (like Yahoo or iCloud) also require a separate app-specific password.")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Field { id: fName; label: qsTr("Your name"); placeholder: qsTr("Shown to people you write to") }
+                        Field {
+                            id: fEmail
+                            objectName: "fieldEmail"
+                            label: qsTr("Email address")
+                            placeholder: form.provider === "gmail" ? "name@gmail.com" : (form.provider === "outlook" ? "name@outlook.com" : "name@example.com")
+                            input.onTextChanged: {
+                                const lower = fEmail.text.toLowerCase()
+                                if (lower.indexOf("@gmail.com") > 0 || lower.indexOf("@googlemail.com") > 0) {
+                                    if (form.provider !== "gmail") {
+                                        form.provider = "gmail"
+                                        form.applyProviderDefaults("gmail")
+                                    }
+                                } else if (lower.indexOf("@outlook.") > 0 || lower.indexOf("@hotmail.") > 0 || lower.indexOf("@live.") > 0 || lower.indexOf("@msn.") > 0) {
+                                    if (form.provider !== "outlook") {
+                                        form.provider = "outlook"
+                                        form.applyProviderDefaults("outlook")
+                                    }
+                                }
+                            }
+                        }
+                        Field {
+                            id: fPass
+                            label: form.provider === "gmail" ? qsTr("Google App Password (16 characters)")
+                                 : form.provider === "outlook" ? qsTr("Microsoft App Password")
+                                 : qsTr("Password")
+                            secret: true
+                            placeholder: form.provider === "gmail" ? qsTr("16 characters (e.g. abcd efgh ijkl mnop)")
+                                       : form.provider === "outlook" ? qsTr("From Microsoft App Passwords")
+                                       : qsTr("Account password")
+                        }
+
                         Text {
                             text: (root.showManual ? "▾ " : "▸ ") + qsTr("Server settings")
                             color: Theme.accent
@@ -767,12 +929,25 @@ Rectangle {
                                 onClicked: {
                                     root.addError = ""
                                     root.busyEmail = fEmail.text
-                                    const req = { email: fEmail.text, name: fName.text, password: fPass.text }
-                                    if (root.showManual && fImap.text.trim() !== "") {
+                                    const cleanPass = fPass.text.trim().replace(/\s+/g, "")
+                                    const req = { email: fEmail.text.trim(), name: fName.text.trim(), password: cleanPass }
+                                    if (form.provider === "gmail" && !root.showManual) {
                                         Object.assign(req, {
-                                            imapHost: fImap.text, imapPort: fImapPort.text, imapSecurity: imapSec.currentValue,
-                                            smtpHost: fSmtp.text, smtpPort: fSmtpPort.text, smtpSecurity: smtpSec.currentValue,
-                                            username: fUser.text
+                                            imapHost: "imap.gmail.com", imapPort: "993", imapSecurity: "tls",
+                                            smtpHost: "smtp.gmail.com", smtpPort: "465", smtpSecurity: "tls",
+                                            username: fEmail.text.trim()
+                                        })
+                                    } else if (form.provider === "outlook" && !root.showManual) {
+                                        Object.assign(req, {
+                                            imapHost: "outlook.office365.com", imapPort: "993", imapSecurity: "tls",
+                                            smtpHost: "smtp.office365.com", smtpPort: "587", smtpSecurity: "starttls",
+                                            username: fEmail.text.trim()
+                                        })
+                                    } else if (root.showManual && fImap.text.trim() !== "") {
+                                        Object.assign(req, {
+                                            imapHost: fImap.text.trim(), imapPort: fImapPort.text.trim(), imapSecurity: imapSec.currentValue,
+                                            smtpHost: fSmtp.text.trim(), smtpPort: fSmtpPort.text.trim(), smtpSecurity: smtpSec.currentValue,
+                                            username: fUser.text.trim() || fEmail.text.trim()
                                         })
                                     }
                                     root.backend.add_account(JSON.stringify(req))
