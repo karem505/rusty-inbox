@@ -187,10 +187,19 @@ Rectangle {
         return n + " B"
     }
 
-    Shortcut { sequences: ["Ctrl+Return", "Ctrl+Enter"]; enabled: root.visible; onActivated: root.send(0) }
+    property var shortcuts: ({})
+    function sc(id, fallback) {
+        return (shortcuts && shortcuts[id] !== undefined) ? shortcuts[id] : fallback
+    }
+    Shortcut {
+        readonly property string key: root.sc("send", "Ctrl+Return")
+        sequences: key === "" ? [] : (key === "Ctrl+Return" ? ["Ctrl+Return", "Ctrl+Enter"] : [key])
+        enabled: root.visible && sequences.length > 0
+        onActivated: root.send(0)
+    }
     Shortcut { sequence: "Escape"; enabled: root.visible; onActivated: aiTools.active ? aiTools.dismiss() : root.closeComposer() }
-    Shortcut { sequence: "Ctrl+J"; enabled: root.visible && root.aiOn; onActivated: aiTools.openMenu() }
-    Shortcut { sequence: "Ctrl+Shift+A"; enabled: root.visible; onActivated: fileDialog.open() }
+    Shortcut { sequence: root.sc("aiMenu", "Ctrl+J"); enabled: root.visible && root.aiOn && sequence !== ""; onActivated: aiTools.openMenu() }
+    Shortcut { sequence: root.sc("attach", "Ctrl+Shift+A"); enabled: root.visible && sequence !== ""; onActivated: fileDialog.open() }
 
     Timer { interval: 4000; repeat: true; running: root.visible && root.dirty && !root.closing; onTriggered: root.save(false) }
 

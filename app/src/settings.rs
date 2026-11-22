@@ -51,6 +51,34 @@ pub fn defaults() -> Value {
         "aiSearch": true,            // 14: plain-words search
         "aiBriefing": false,         // 15: daily briefing
         "aiBriefingHour": 8,
+        // customizable keyboard shortcuts (action id -> Qt key sequence string, "" = disabled)
+        "shortcuts": default_shortcuts(),
+    })
+}
+
+pub fn default_shortcuts() -> Value {
+    json!({
+        "next": "J",
+        "prev": "K",
+        "open": "O",
+        "select": "X",
+        "done": "E",
+        "toggleShowDone": "Shift+E",
+        "pin": "P",
+        "snooze": "S",
+        "toggleRead": "U",
+        "delete": "#",
+        "spam": "!",
+        "undo": "Z",
+        "search": "/",
+        "settings": "Ctrl+,",
+        "compose": "C",
+        "reply": "R",
+        "replyAll": "A",
+        "forward": "F",
+        "send": "Ctrl+Return",
+        "attach": "Ctrl+Shift+A",
+        "aiMenu": "Ctrl+J",
     })
 }
 
@@ -88,10 +116,20 @@ pub fn validate(key: &str, value: &Value) -> Result<Value, String> {
     };
     let same_type = matches!(
         (default, value),
-        (Value::Bool(_), Value::Bool(_)) | (Value::Number(_), Value::Number(_)) | (Value::String(_), Value::String(_))
+        (Value::Bool(_), Value::Bool(_))
+            | (Value::Number(_), Value::Number(_))
+            | (Value::String(_), Value::String(_))
+            | (Value::Object(_), Value::Object(_))
     );
     if !same_type {
         return Err(format!("{key}: wrong type"));
+    }
+    if key == "shortcuts" {
+        if let Value::Object(map) = value {
+            if !map.values().all(|v| v.is_string()) {
+                return Err("shortcuts: values must be strings".into());
+            }
+        }
     }
     if let Some(c) = choices(key) {
         if !c.contains(value) {
@@ -107,7 +145,16 @@ pub fn all(store: &Store) -> Value {
     if let Value::Object(d) = defaults() {
         for (k, default) in d {
             let stored = store.setting(&format!("{PREFIX}{k}")).ok().flatten();
-            let v = stored.filter(|v| validate(&k, v).is_ok()).unwrap_or(default);
+            let v = match (default, stored.filter(|v| validate(&k, v).is_ok())) {
+                (Value::Object(mut def_map), Some(Value::Object(stored_map))) => {
+                    for (sk, sv) in stored_map {
+                        def_map.insert(sk, sv);
+                    }
+                    Value::Object(def_map)
+                }
+                (_, Some(v)) => v,
+                (def, None) => def,
+            };
             out.insert(k, v);
         }
     }
@@ -245,5 +292,18 @@ mod tests {
         // a value written behind our back with the wrong type falls back to the default
         s.set_setting("rustyInbox.density", &json!(3)).unwrap();
         assert_eq!(get(&s, "density"), json!("comfortable"));
+    }
+
+    #[test]
+    fn shortcuts_overlay_defaults_and_validate() {
+        let s = Store::in_memory().unwrap();
+        assert_eq!(get(&s, "shortcuts")["done"], json!("E"));
+        assert!(set(&s, "shortcuts", &json!({"done": 123})).is_err());
+        set(&s, "shortcuts", &json!({"done": "D", "reply": "Ctrl+R"})).unwrap();
+        let sc = get(&s, "shortcuts");
+        assert_eq!(sc["done"], json!("D"));
+        assert_eq!(sc["reply"], json!("Ctrl+R"));
+        // untouched defaults remain intact
+        assert_eq!(sc["compose"], json!("C"));
     }
 }

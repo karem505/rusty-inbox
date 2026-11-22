@@ -526,25 +526,34 @@ ApplicationWindow {
     // ---- keyboard ---------------------------------------------------------------------------
     // single-key shortcuts only while the mail view has the keyboard (not in Settings or while
     // writing: the composer handles its own keys)
+    function sc(id, fallback) {
+        return (prefs.shortcuts && prefs.shortcuts[id] !== undefined) ? prefs.shortcuts[id] : fallback
+    }
+    function scList(primary, extra) {
+        const out = []
+        if (primary !== "") out.push(primary)
+        for (const x of extra) out.push(x)
+        return out
+    }
     readonly property bool keysOn: !settingsPage.shown && !composerLoader.active && !contactCard.opened && !threadList.searchFocused
-    Shortcut { sequence: "/"; enabled: win.keysOn; onActivated: win.openSearch() }   // AI(C2)
-    Shortcut { sequences: ["C", "Ctrl+N"]; enabled: !settingsPage.shown && !composerLoader.active; onActivated: win.compose("new", 0) }
-    Shortcut { sequence: "R"; enabled: win.keysOn; onActivated: win.respond("reply") }
-    Shortcut { sequence: "A"; enabled: win.keysOn; onActivated: win.respond("replyAll") }
-    Shortcut { sequence: "F"; enabled: win.keysOn; onActivated: win.respond("forward") }
+    Shortcut { sequence: win.sc("search", "/"); enabled: win.keysOn && sequence !== ""; onActivated: win.openSearch() }   // AI(C2)
+    Shortcut { sequences: win.scList(win.sc("compose", "C"), ["Ctrl+N"]); enabled: !settingsPage.shown && !composerLoader.active; onActivated: win.compose("new", 0) }
+    Shortcut { sequence: win.sc("reply", "R"); enabled: win.keysOn && sequence !== ""; onActivated: win.respond("reply") }
+    Shortcut { sequence: win.sc("replyAll", "A"); enabled: win.keysOn && sequence !== ""; onActivated: win.respond("replyAll") }
+    Shortcut { sequence: win.sc("forward", "F"); enabled: win.keysOn && sequence !== ""; onActivated: win.respond("forward") }
     Shortcut { sequence: "Escape"; enabled: win.keysOn; onActivated: threadList.selecting ? threadList.clearSelection() : win.closeThread() }
-    Shortcut { sequence: "X"; enabled: win.keysOn; onActivated: threadList.toggleFocused() }
-    Shortcut { sequences: ["Ctrl+,", StandardKey.Preferences]; onActivated: win.openSettings("general") }
-    Shortcut { sequences: ["Down", "J"]; enabled: win.keysOn; onActivated: { if (threadList.moveFocus(1) && win.openId >= 0) win.openThread(threadList.focusedId()) } }
-    Shortcut { sequences: ["Up", "K"]; enabled: win.keysOn; onActivated: { if (threadList.moveFocus(-1) && win.openId >= 0) win.openThread(threadList.focusedId()) } }
-    Shortcut { sequences: ["Return", "O"]; enabled: win.keysOn; onActivated: win.openThread(threadList.focusedId()) }
-    Shortcut { sequence: "E"; enabled: win.keysOn; onActivated: win.perform(win.spec.list === "done" ? "undone" : "done", threadList.targetIds()) }
-    Shortcut { sequence: "Shift+E"; enabled: win.keysOn; onActivated: win.toggleShowDone() }
-    Shortcut { sequences: ["#", "Delete"]; enabled: win.keysOn; onActivated: win.perform(win.spec.list === "trash" ? "permanentDelete" : "moveToTrash", threadList.targetIds()) }
-    Shortcut { sequence: "!"; enabled: win.keysOn; onActivated: win.perform("markAsSpam", threadList.targetIds()) }
+    Shortcut { sequence: win.sc("select", "X"); enabled: win.keysOn && sequence !== ""; onActivated: threadList.toggleFocused() }
+    Shortcut { sequences: win.scList(win.sc("settings", "Ctrl+,"), [StandardKey.Preferences]); onActivated: win.openSettings("general") }
+    Shortcut { sequences: win.scList(win.sc("next", "J"), ["Down"]); enabled: win.keysOn; onActivated: { if (threadList.moveFocus(1) && win.openId >= 0) win.openThread(threadList.focusedId()) } }
+    Shortcut { sequences: win.scList(win.sc("prev", "K"), ["Up"]); enabled: win.keysOn; onActivated: { if (threadList.moveFocus(-1) && win.openId >= 0) win.openThread(threadList.focusedId()) } }
+    Shortcut { sequences: win.scList(win.sc("open", "O"), ["Return"]); enabled: win.keysOn; onActivated: win.openThread(threadList.focusedId()) }
+    Shortcut { sequence: win.sc("done", "E"); enabled: win.keysOn && sequence !== ""; onActivated: win.perform(win.spec.list === "done" ? "undone" : "done", threadList.targetIds()) }
+    Shortcut { sequence: win.sc("toggleShowDone", "Shift+E"); enabled: win.keysOn && sequence !== ""; onActivated: win.toggleShowDone() }
+    Shortcut { sequences: win.scList(win.sc("delete", "#"), ["Delete"]); enabled: win.keysOn; onActivated: win.perform(win.spec.list === "trash" ? "permanentDelete" : "moveToTrash", threadList.targetIds()) }
+    Shortcut { sequence: win.sc("spam", "!"); enabled: win.keysOn && sequence !== ""; onActivated: win.perform("markAsSpam", threadList.targetIds()) }
     Shortcut {
-        sequence: "P"
-        enabled: win.keysOn
+        sequence: win.sc("pin", "P")
+        enabled: win.keysOn && sequence !== ""
         onActivated: {
             const ids = threadList.targetIds()
             const r = ids.length ? threadList.rowOf(ids[0]) : null
@@ -552,16 +561,16 @@ ApplicationWindow {
         }
     }
     Shortcut {
-        sequence: "U"
-        enabled: win.keysOn
+        sequence: win.sc("toggleRead", "U")
+        enabled: win.keysOn && sequence !== ""
         onActivated: {
             const ids = threadList.targetIds()
             const r = ids.length ? threadList.rowOf(ids[0]) : null
             win.perform(r && r.unread ? "markAsSeen" : "markAsUnseen", ids)
         }
     }
-    Shortcut { sequence: "S"; enabled: win.keysOn; onActivated: win.snoozeTargets(threadList.targetIds(), readerLoader.active ? readerLoader : threadList) }
-    Shortcut { sequences: [StandardKey.Undo, "Z"]; enabled: win.keysOn; onActivated: win.undo() }
+    Shortcut { sequence: win.sc("snooze", "S"); enabled: win.keysOn && sequence !== ""; onActivated: win.snoozeTargets(threadList.targetIds(), readerLoader.active ? readerLoader : threadList) }
+    Shortcut { sequences: win.scList(win.sc("undo", "Z"), [StandardKey.Undo]); enabled: win.keysOn; onActivated: win.undo() }
     Shortcut { sequence: StandardKey.SelectAll; enabled: win.keysOn; onActivated: threadList.selectAll() }
 
     SnoozeMenu {
@@ -657,6 +666,7 @@ ApplicationWindow {
                 sourceComponent: Composer {
                     backend: win.core
                     accounts: win.sidebarModel.accounts
+                    shortcuts: win.prefs.shortcuts || ({})
                     expanded: win.composeExpanded
                     onClosed: win.closeComposer()
                     onNotice: (text) => toast.show(text, false)
