@@ -23,6 +23,9 @@ pub const DESKTOP_ID: &str = match option_env!("RUSTY_INBOX_DESKTOP_ID") {
 use cxx_qt_lib::{QFont, QGuiApplication, QQmlApplicationEngine, QString, QUrl};
 
 fn main() {
+    if std::env::var_os("QT_QUICK_CONTROLS_STYLE").is_none() {
+        std::env::set_var("QT_QUICK_CONTROLS_STYLE", "Basic");
+    }
     if std::env::args().any(|a| a == "--version" || a == "-V") {
         println!("{APP_ID} {}", env!("CARGO_PKG_VERSION"));
         return;

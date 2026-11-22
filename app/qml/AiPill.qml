@@ -15,9 +15,9 @@ Rectangle {
     implicitWidth: row.implicitWidth + 24
     implicitHeight: 28
     radius: 14
-    color: active ? Theme.selected : (hov.hovered ? Theme.hover : "transparent")
+    color: active ? Theme.selected : (hov.hovered ? Theme.hover : Qt.rgba(Theme.hover.r, Theme.hover.g, Theme.hover.b, 0))
     border.color: active ? Theme.accent : Theme.border
-    Behavior on color { ColorAnimation { duration: Theme.fast } }
+    Behavior on color { ColorAnimation { duration: 75 } }
     Behavior on border.color { ColorAnimation { duration: Theme.fast } }
     scale: tap.pressed ? 0.96 : 1
     Behavior on scale { NumberAnimation { duration: Theme.fast; easing.type: Theme.easing } }

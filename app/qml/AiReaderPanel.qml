@@ -340,10 +340,10 @@ Item {
                         width: parent.width
                         height: label.implicitHeight + 16
                         radius: 10
-                        color: rh.hovered ? Theme.selected : "transparent"
+                        color: rh.hovered ? Theme.selected : Qt.rgba(Theme.selected.r, Theme.selected.g, Theme.selected.b, 0)
                         border.color: rh.hovered ? Theme.accent : Theme.border
-                        Behavior on color { ColorAnimation { duration: Theme.fast } }
-                        Behavior on border.color { ColorAnimation { duration: Theme.fast } }
+                        Behavior on color { ColorAnimation { duration: 75 } }
+                        Behavior on border.color { ColorAnimation { duration: 75 } }
                         Row {
                             x: 12
                             y: 8

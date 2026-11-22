@@ -426,7 +426,7 @@ Rectangle {
             clip: true
             Behavior on height { NumberAnimation { duration: Theme.normal; easing.type: Theme.easing } }
             color: isSelected || tid === root.openId ? Theme.selected : (hover.hovered ? Theme.hover : Theme.list)
-            Behavior on color { ColorAnimation { duration: Theme.fast } }
+            Behavior on color { ColorAnimation { duration: 75 } }
 
             HoverHandler { id: hover }
             TapHandler {
