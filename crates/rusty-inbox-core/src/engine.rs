@@ -426,6 +426,117 @@ impl Engine {
         Ok(target)
     }
 
+    /// Raw RFC822 / MIME bytes of a message directly from the IMAP server (or synthesized from cache when offline).
+    pub async fn raw_message_bytes(&self, message_id: i64) -> anyhow::Result<Vec<u8>> {
+        let store = &self.inner.store;
+        if self.inner.cfg.network {
+            if let Ok(Some((acc, path, uid))) = store.message_location(message_id) {
+                if let Ok(mut c) = self.checkout(&acc).await {
+                    let raw = c.fetch_full(&path, uid).await;
+                    self.release(c).await;
+                    if let Ok(Some(bytes)) = raw {
+                        return Ok(bytes);
+                    }
+                }
+            }
+        }
+        // Fallback: build valid RFC822 from local store
+        let (_, m) = store
+            .message(message_id)?
+            .ok_or_else(|| anyhow::anyhow!("message {message_id} not found"))?;
+        Ok(synthesize_eml(&m))
+    }
+
+    /// Export a single message as a .eml file.
+    pub async fn export_message_eml(&self, message_id: i64, dest: &Path) -> anyhow::Result<PathBuf> {
+        let bytes = self.raw_message_bytes(message_id).await?;
+        let target = if dest.is_dir() {
+            let store = &self.inner.store;
+            let sub = store
+                .thread_messages(message_id)
+                .ok()
+                .and_then(|ms| ms.into_iter().next())
+                .map(|m| m.subject)
+                .unwrap_or_else(|| "message".to_string());
+            unique_path(dest, &format!("{}.eml", safe_file_name(&sub)))
+        } else {
+            dest.to_path_buf()
+        };
+        if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&target, bytes)?;
+        Ok(target)
+    }
+
+    /// Export an entire thread as a ZIP file containing numbered .eml files.
+    pub async fn export_thread_zip(&self, thread_id: i64, dest: &Path) -> anyhow::Result<PathBuf> {
+        let messages = self.inner.store.thread_messages(thread_id)?;
+        if messages.is_empty() {
+            anyhow::bail!("no messages in thread {thread_id}");
+        }
+        let target = if dest.is_dir() {
+            let sub = messages.first().map(|m| m.subject.as_str()).unwrap_or("thread");
+            unique_path(dest, &format!("{}.zip", safe_file_name(sub)))
+        } else {
+            dest.to_path_buf()
+        };
+        if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)?;
+        }
+        let file = std::fs::File::create(&target)?;
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+
+        use std::io::Write;
+        for (i, m) in messages.iter().enumerate() {
+            if let Ok(bytes) = self.raw_message_bytes(m.id).await {
+                let safe_subj = safe_file_name(&m.subject);
+                let safe_subj = if safe_subj.is_empty() { "message".to_string() } else { safe_subj };
+                let filename = format!("{:02}_{}_{}.eml", i + 1, m.date_ms, safe_subj);
+                zip.start_file(filename, options)?;
+                zip.write_all(&bytes)?;
+            }
+        }
+        zip.finish()?;
+        Ok(target)
+    }
+
+    /// Export an entire thread as an .mbox file.
+    pub async fn export_thread_mbox(&self, thread_id: i64, dest: &Path) -> anyhow::Result<PathBuf> {
+        let messages = self.inner.store.thread_messages(thread_id)?;
+        if messages.is_empty() {
+            anyhow::bail!("no messages in thread {thread_id}");
+        }
+        let target = if dest.is_dir() {
+            let sub = messages.first().map(|m| m.subject.as_str()).unwrap_or("thread");
+            unique_path(dest, &format!("{}.mbox", safe_file_name(sub)))
+        } else {
+            dest.to_path_buf()
+        };
+        if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut out = std::fs::File::create(&target)?;
+        use std::io::Write;
+        for m in &messages {
+            if let Ok(bytes) = self.raw_message_bytes(m.id).await {
+                let from_line = format!(
+                    "From {} {}\n",
+                    if m.from_addr.is_empty() { "MAILER-DAEMON" } else { &m.from_addr },
+                    chrono::DateTime::from_timestamp_millis(m.date_ms)
+                        .unwrap_or_else(chrono::Utc::now)
+                        .to_rfc2822()
+                );
+                out.write_all(from_line.as_bytes())?;
+                out.write_all(&bytes)?;
+                out.write_all(b"\n\n")?;
+            }
+        }
+        Ok(target)
+    }
+
     // ---------------------------------------------------------------------------------------
     // composing and sending
     // ---------------------------------------------------------------------------------------
@@ -812,6 +923,35 @@ impl Engine {
     }
 }
 
+fn synthesize_eml(m: &crate::store::MessageRow) -> Vec<u8> {
+    let mut eml = String::new();
+    if let Some(mid) = &m.message_id {
+        eml.push_str(&format!("Message-ID: {mid}\r\n"));
+    }
+    let date_str = chrono::DateTime::from_timestamp_millis(m.date_ms)
+        .unwrap_or_else(chrono::Utc::now)
+        .to_rfc2822();
+    eml.push_str(&format!("Date: {date_str}\r\n"));
+    if let Some(name) = &m.from_name {
+        eml.push_str(&format!("From: \"{name}\" <{}>\r\n", m.from_addr));
+    } else {
+        eml.push_str(&format!("From: <{}>\r\n", m.from_addr));
+    }
+    eml.push_str(&format!("Subject: {}\r\n", m.subject));
+    eml.push_str("MIME-Version: 1.0\r\n");
+    if let Some(html) = &m.body_html {
+        eml.push_str("Content-Type: text/html; charset=utf-8\r\n\r\n");
+        eml.push_str(html);
+    } else if let Some(txt) = &m.body_text {
+        eml.push_str("Content-Type: text/plain; charset=utf-8\r\n\r\n");
+        eml.push_str(txt);
+    } else {
+        eml.push_str("Content-Type: text/plain; charset=utf-8\r\n\r\n");
+        eml.push_str(&m.preview);
+    }
+    eml.into_bytes()
+}
+
 /// A file name that is safe on every platform: no folders, no characters Windows rejects, no
 /// leading dots, at most 200 bytes (the extension is kept).
 pub fn safe_file_name(name: &str) -> String {
@@ -1068,5 +1208,45 @@ mod tests {
         assert!(has_cid_refs(r#"<img src="cid:logo">"#));
         assert!(has_cid_refs("background:url(cid:x)"));
         assert!(!has_cid_refs("<p>no images</p>"));
+    }
+
+    #[tokio::test]
+    async fn export_single_message_and_threads() {
+        let (e, _dir, ids) = engine();
+        let s = e.store();
+        let thread_id = ids[0];
+        let msg = &s.thread_messages(thread_id).unwrap()[0];
+        let mid = msg.id;
+
+        let out = tempfile::tempdir().unwrap();
+
+        // 1. Single EML export
+        let eml_file = out.path().join("single.eml");
+        let exported = e.export_message_eml(mid, &eml_file).await.unwrap();
+        assert!(exported.is_file());
+        let content = std::fs::read_to_string(&exported).unwrap();
+        assert!(content.contains(&format!("Subject: {}", msg.subject)));
+        assert!(content.contains(&format!("From: <{}>", msg.from_addr)));
+
+        // 2. Thread ZIP export
+        let zip_file = out.path().join("thread.zip");
+        let exported_zip = e.export_thread_zip(thread_id, &zip_file).await.unwrap();
+        assert!(exported_zip.is_file());
+        assert!(std::fs::metadata(&exported_zip).unwrap().len() > 0);
+
+        // Verify ZIP contents
+        let file = std::fs::File::open(&exported_zip).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+        assert_eq!(archive.len(), 1);
+        let entry_name = archive.by_index(0).unwrap().name().unwrap().to_string();
+        assert!(entry_name.ends_with(".eml"));
+
+        // 3. Thread MBOX export
+        let mbox_file = out.path().join("thread.mbox");
+        let exported_mbox = e.export_thread_mbox(thread_id, &mbox_file).await.unwrap();
+        assert!(exported_mbox.is_file());
+        let mbox_content = std::fs::read_to_string(&exported_mbox).unwrap();
+        assert!(mbox_content.starts_with("From "));
+        assert!(mbox_content.contains(&format!("Subject: {}", msg.subject)));
     }
 }

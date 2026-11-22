@@ -18,7 +18,7 @@ thiserror.workspace = true
 tracing.workspace = true
 parking_lot.workspace = true
 chrono.workspace = true
-rusqlite = { version = "0.40", features = ["bundled", "serde_json"] }
+rusqlite = { version = "0.40", features = ["bundled-sqlcipher", "serde_json"] }
 async-imap = { version = "0.12", default-features = false, features = ["runtime-tokio"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
 rustls-native-certs = "0.8"
@@ -36,6 +36,8 @@ pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
 aes = "0.8"
 des = "0.8"
 cbc = { version = "0.1", features = ["alloc", "block-padding"] }
+keyring = { version = "4.2.0", features = ["apple-native-keyring-store", "windows-native-keyring-store", "zbus-secret-service-keyring-store"] }
+zip = { version = "9.5.1", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tempfile = "3"
