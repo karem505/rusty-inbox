@@ -8,6 +8,7 @@ import QtQuick.Layouts
 Rectangle {
     id: root
     property var backend
+    property var syncProgress: ({ active: false, account: "", folder: "", folderIndex: 0, folderTotal: 0, downloaded: 0, total: 0 })
     property string page: "general"
     property var prefs: ({})
     property var accounts: []
@@ -404,6 +405,15 @@ Rectangle {
                             }
                         }
                         Option {
+                            label: qsTr("Messages per folder")
+                            help: qsTr("How many messages to download per folder. All downloads your complete mailbox history.")
+                            Choice {
+                                key: "syncLimit"
+                                values: [0, 300, 1000, 5000, 20000]
+                                labels: [qsTr("All"), "300", "1,000", "5,000", "20,000"]
+                            }
+                        }
+                        Option {
                             label: qsTr("Keep running in the status bar")
                             help: qsTr("Closing the window keeps %1 in the top bar so mail and notifications keep arriving. Quit from the bar icon.").arg(root.backend.app_name())
                             Toggle { key: "closeToTray" }
@@ -506,6 +516,78 @@ Rectangle {
                                         font.pixelSize: 12
                                         color: Theme.textSubtle
                                         wrapMode: Text.Wrap
+                                    }
+                                    // live sync progress for this account
+                                    Column {
+                                        visible: !!(root.syncProgress && root.syncProgress.active && root.syncProgress.account === card.modelData.email)
+                                        Layout.fillWidth: true
+                                        spacing: 5
+                                        Row {
+                                            width: parent.width
+                                            spacing: 8
+                                            Text {
+                                                width: parent.width - accProgCount.implicitWidth - 8
+                                                elide: Text.ElideRight
+                                                font.pixelSize: 12
+                                                color: Theme.accent
+                                                text: {
+                                                    const sp = root.syncProgress
+                                                    if (!sp || !sp.active) return ""
+                                                    if (sp.total > 0) return qsTr("Downloading %1…").arg(sp.folder || qsTr("mail"))
+                                                    if (sp.folder) return qsTr("Syncing %1…").arg(sp.folder)
+                                                    return qsTr("Connecting…")
+                                                }
+                                            }
+                                            Text {
+                                                id: accProgCount
+                                                font.pixelSize: 12
+                                                color: Theme.textMuted
+                                                text: {
+                                                    const sp = root.syncProgress
+                                                    if (!sp || !sp.active) return ""
+                                                    if (sp.total > 0) return sp.downloaded + " / " + sp.total
+                                                    if (sp.folderTotal > 0) return qsTr("Folder %1 of %2").arg(sp.folderIndex).arg(sp.folderTotal)
+                                                    return ""
+                                                }
+                                            }
+                                        }
+                                        Rectangle {
+                                            id: accTrack
+                                            width: parent.width
+                                            height: 5
+                                            radius: 3
+                                            color: Theme.border
+                                            clip: true
+                                            readonly property bool det: !!(root.syncProgress && (root.syncProgress.total > 0 || root.syncProgress.folderTotal > 0))
+                                            readonly property real ratio: {
+                                                const sp = root.syncProgress
+                                                if (!sp || !sp.active) return 0
+                                                if (sp.total > 0) return Math.min(1, sp.downloaded / sp.total)
+                                                if (sp.folderTotal > 0) return Math.min(1, sp.folderIndex / sp.folderTotal)
+                                                return 0
+                                            }
+                                            Rectangle {
+                                                visible: accTrack.det
+                                                height: parent.height
+                                                radius: 3
+                                                color: Theme.accent
+                                                width: Math.max(10, parent.width * accTrack.ratio)
+                                                Behavior on width { NumberAnimation { duration: 150 } }
+                                            }
+                                            Rectangle {
+                                                id: accIndet
+                                                visible: !accTrack.det && parent.parent.visible
+                                                height: parent.height
+                                                width: parent.width * 0.3
+                                                radius: 3
+                                                color: Theme.accent
+                                                SequentialAnimation on x {
+                                                    running: accIndet.visible
+                                                    loops: Animation.Infinite
+                                                    NumberAnimation { from: -accIndet.width; to: accTrack.width; duration: 1100; easing.type: Easing.InOutQuad }
+                                                }
+                                            }
+                                        }
                                     }
                                     // signature
                                     Column {

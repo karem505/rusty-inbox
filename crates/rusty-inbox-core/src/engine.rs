@@ -38,7 +38,21 @@ pub struct NewMail {
     pub preview: String,
 }
 
+/// Live progress of an account sync pass (for the UI progress bar).
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncProgress {
+    pub active: bool,
+    pub account: String,
+    pub folder: String,
+    pub folder_index: usize,
+    pub folder_total: usize,
+    pub downloaded: usize,
+    pub total: usize,
+}
+
 type NewMailFn = dyn Fn(NewMail) + Send + Sync;
+type SyncProgressFn = dyn Fn(SyncProgress) + Send + Sync;
 
 /// Automatic retries of a message whose sending hit a network error.
 pub const MAX_SEND_RETRIES: i64 = 3;
@@ -58,6 +72,8 @@ struct Inner {
     /// newest message time seen per account; mail newer than this after a pass is "new"
     high_water: Mutex<HashMap<String, i64>>,
     on_new_mail: Mutex<Option<Arc<NewMailFn>>>,
+    sync_progress: Mutex<SyncProgress>,
+    on_sync_progress: Mutex<Option<Arc<SyncProgressFn>>>,
     /// open IMAP connections per account, reused between operations: mail servers (cPanel's
     /// firewall in particular) drop clients that open several connections in a short time
     pool: Mutex<HashMap<String, Vec<imap::Connection>>>,
@@ -95,6 +111,8 @@ impl Engine {
                 store,
                 high_water: Mutex::new(HashMap::new()),
                 on_new_mail: Mutex::new(None),
+                sync_progress: Mutex::new(SyncProgress::default()),
+                on_sync_progress: Mutex::new(None),
                 pool: Mutex::new(HashMap::new()),
                 next_connect: Mutex::new(HashMap::new()),
                 sync_locks: Mutex::new(HashMap::new()),
@@ -115,6 +133,24 @@ impl Engine {
     /// The first pass of an account after start-up never reports, so old mail does not ring.
     pub fn on_new_mail(&self, f: impl Fn(NewMail) + Send + Sync + 'static) {
         *self.inner.on_new_mail.lock() = Some(Arc::new(f));
+    }
+
+    /// Called (on an engine thread) whenever sync progress changes.
+    pub fn on_sync_progress(&self, f: impl Fn(SyncProgress) + Send + Sync + 'static) {
+        *self.inner.on_sync_progress.lock() = Some(Arc::new(f));
+    }
+
+    /// Snapshot of the current sync progress.
+    pub fn sync_progress(&self) -> SyncProgress {
+        self.inner.sync_progress.lock().clone()
+    }
+
+    fn emit_sync_progress(&self, progress: SyncProgress) {
+        *self.inner.sync_progress.lock() = progress.clone();
+        let cb = self.inner.on_sync_progress.lock().clone();
+        if let Some(cb) = cb {
+            cb(progress);
+        }
     }
 
     // ---------------------------------------------------------------------------------------
@@ -609,11 +645,26 @@ impl Engine {
     pub async fn sync_account(&self, email: &str) -> anyhow::Result<usize> {
         let lock = self.sync_lock(email);
         let _one_at_a_time = lock.lock().await;
+        self.emit_sync_progress(SyncProgress {
+            active: true,
+            account: email.to_string(),
+            ..Default::default()
+        });
+        let res = self.sync_account_inner(email).await;
+        self.emit_sync_progress(SyncProgress {
+            active: false,
+            account: email.to_string(),
+            ..Default::default()
+        });
+        res
+    }
+
+    async fn sync_account_inner(&self, email: &str) -> anyhow::Result<usize> {
         let store = &self.inner.store;
         let _ = store.wake_snoozed(Utc::now().timestamp_millis());
         let mut c = self.checkout(email).await?;
         let remote = c.list_folders().await?;
-        let mut targets: Vec<(i64, String, String)> = vec![];
+        let mut targets: Vec<(i64, String, String, String)> = vec![];
         for f in &remote {
             let id = store.upsert_folder(
                 email,
@@ -623,16 +674,45 @@ impl Engine {
                 f.role.as_deref(),
                 f.selectable,
             )?;
-            if let (Some(role), true) = (&f.role, f.selectable) {
-                targets.push((id, f.path.clone(), role.clone()));
+            if f.selectable {
+                targets.push((
+                    id,
+                    f.path.clone(),
+                    f.role.clone().unwrap_or_else(|| "custom".to_string()),
+                    f.name.clone(),
+                ));
             }
         }
         let order = ["inbox", "sent", "drafts", "archive", "trash", "spam"];
         targets.sort_by_key(|t| order.iter().position(|r| *r == t.2).unwrap_or(99));
+        let folder_total = targets.len();
         let before = self.inner.high_water.lock().get(email).copied();
         let mut total = 0;
-        for (id, path, _role) in &targets {
-            total += c.sync_folder(store, email, *id, path).await?.new;
+        for (idx, (id, path, _role, display_name)) in targets.iter().enumerate() {
+            let folder_index = idx + 1;
+            self.emit_sync_progress(SyncProgress {
+                active: true,
+                account: email.to_string(),
+                folder: display_name.clone(),
+                folder_index,
+                folder_total,
+                downloaded: 0,
+                total: 0,
+            });
+            total += c
+                .sync_folder_with_progress(store, email, *id, path, |downloaded, msg_total| {
+                    self.emit_sync_progress(SyncProgress {
+                        active: true,
+                        account: email.to_string(),
+                        folder: display_name.clone(),
+                        folder_index,
+                        folder_total,
+                        downloaded,
+                        total: msg_total,
+                    });
+                })
+                .await?
+                .new;
         }
         self.release(c).await;
         self.report_new_mail(email, before);
@@ -1069,4 +1149,5 @@ mod tests {
         assert!(has_cid_refs("background:url(cid:x)"));
         assert!(!has_cid_refs("<p>no images</p>"));
     }
+
 }

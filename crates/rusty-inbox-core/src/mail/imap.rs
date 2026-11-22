@@ -179,12 +179,26 @@ impl Connection {
                 }
             }
         }
+        assign_archive_fallback(&mut out);
         out.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(out)
     }
 
     /// Incrementally sync one folder into the store. Returns the number of new messages.
     pub async fn sync_folder(&mut self, store: &Store, account: &str, folder_id: i64, path: &str) -> Result<SyncStats> {
+        self.sync_folder_with_progress(store, account, folder_id, path, |_, _| {}).await
+    }
+
+    /// Incrementally sync one folder into the store, calling `on_progress(downloaded, total)`
+    /// as batches of new messages are fetched and committed.
+    pub async fn sync_folder_with_progress(
+        &mut self,
+        store: &Store,
+        account: &str,
+        folder_id: i64,
+        path: &str,
+        mut on_progress: impl FnMut(usize, usize),
+    ) -> Result<SyncStats> {
         let mb = timed("select", async { Ok(self.session.select(path).await?) }).await?;
         let uidvalidity = mb.uid_validity.unwrap_or(0);
         let uidnext = mb.uid_next.unwrap_or(0);
@@ -196,14 +210,26 @@ impl Connection {
             return Ok(stats);
         }
 
-        // current UID set on the server (bounded to the window for big folders)
+        // current UID set on the server (bounded to the window for big folders, or 0 = unlimited)
         let all: Vec<u32> = {
             let set = timed("search", async { Ok(self.session.uid_search("ALL").await?) }).await?;
             let mut v: Vec<u32> = set.into_iter().collect();
             v.sort_unstable();
             v
         };
-        let window: Vec<u32> = all.iter().rev().take(INITIAL_WINDOW as usize).rev().copied().collect();
+        let sync_limit: usize = store
+            .setting("rustyInbox.syncLimit")
+            .ok()
+            .flatten()
+            .or_else(|| store.setting("syncLimit").ok().flatten())
+            .and_then(|v| v.as_u64())
+            .map(|n| n as usize)
+            .unwrap_or(0);
+        let window: Vec<u32> = if sync_limit == 0 {
+            all.clone()
+        } else {
+            all.iter().rev().take(sync_limit).rev().copied().collect()
+        };
         let min_window = window.first().copied().unwrap_or(0);
 
         // removals (only within what we track)
@@ -212,31 +238,38 @@ impl Connection {
         let gone: Vec<u32> = local.iter().copied().filter(|u| !server.contains(u)).collect();
         stats.removed = store.delete_uids(folder_id, &gone)?;
 
-        // new messages
+        // new messages (newest UIDs first so recent mail shows up immediately)
         let have: std::collections::HashSet<u32> = local.into_iter().collect();
-        let missing: Vec<u32> = window.iter().copied().filter(|u| !have.contains(u)).collect();
+        let missing: Vec<u32> = window.iter().rev().copied().filter(|u| !have.contains(u)).collect();
         if !missing.is_empty() {
+            let missing_total = missing.len();
+            let mut downloaded = 0usize;
+            on_progress(0, missing_total);
             // sizes first so huge mails are fetched header-only
             let sizes = self.fetch_sizes(&missing).await?;
             let (small, big): (Vec<u32>, Vec<u32>) =
                 missing.iter().partition(|u| sizes.get(u).copied().unwrap_or(0) <= FULL_FETCH_LIMIT);
-            for chunk in small.chunks(25) {
+            for chunk in small.chunks(50) {
                 let fetches = self.uid_fetch(chunk, "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[])").await?;
-                for f in &fetches {
-                    if let Some(m) = to_message(f, account, folder_id, true) {
-                        store.insert_message(&m)?;
-                        stats.new += 1;
-                    }
+                let batch: Vec<crate::store::NewMessage> =
+                    fetches.iter().filter_map(|f| to_message(f, account, folder_id, true)).collect();
+                if !batch.is_empty() {
+                    let inserted = store.insert_messages(&batch)?;
+                    stats.new += inserted.len();
                 }
+                downloaded = (downloaded + chunk.len()).min(missing_total);
+                on_progress(downloaded, missing_total);
             }
             for chunk in big.chunks(50) {
                 let fetches = self.uid_fetch(chunk, "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER])").await?;
-                for f in &fetches {
-                    if let Some(m) = to_message(f, account, folder_id, false) {
-                        store.insert_message(&m)?;
-                        stats.new += 1;
-                    }
+                let batch: Vec<crate::store::NewMessage> =
+                    fetches.iter().filter_map(|f| to_message(f, account, folder_id, false)).collect();
+                if !batch.is_empty() {
+                    let inserted = store.insert_messages(&batch)?;
+                    stats.new += inserted.len();
                 }
+                downloaded = (downloaded + chunk.len()).min(missing_total);
+                on_progress(downloaded, missing_total);
             }
         }
 
@@ -371,19 +404,31 @@ pub struct RemoteFolder {
     pub selectable: bool,
 }
 
+/// Gmail and some other IMAP servers expose `\All` (`[Gmail]/All Mail`) instead of `\Archive`.
+/// When no dedicated archive folder exists, promote `\All` to `"archive"` so Archive and Done work.
+pub fn assign_archive_fallback(folders: &mut [RemoteFolder]) {
+    if folders.iter().any(|f| f.role.as_deref() == Some("archive")) {
+        return;
+    }
+    if let Some(all_folder) = folders.iter_mut().find(|f| f.selectable && f.role.as_deref() == Some("all")) {
+        all_folder.role = Some("archive".to_string());
+    }
+}
+
 pub fn role_from_name(path: &str, delim: Option<&str>) -> Option<&'static str> {
     if path.eq_ignore_ascii_case("INBOX") {
         return Some("inbox");
     }
     let leaf = display_name(path, delim).to_lowercase();
     match leaf.as_str() {
-        "sent" | "sent items" | "sent messages" | "sent mail" | "المرسل" | "البريد المرسل" => {
-            Some("sent")
-        }
-        "drafts" | "draft" | "المسودات" => Some("drafts"),
-        "trash" | "deleted" | "deleted items" | "deleted messages" | "bin" | "المحذوفات" => Some("trash"),
+        "sent" | "sent items" | "sent messages" | "sent mail" | "gesendet" | "gesendete objekte" | "المرسل"
+        | "البريد المرسل" => Some("sent"),
+        "drafts" | "draft" | "entwürfe" | "المسودات" => Some("drafts"),
+        "trash" | "deleted" | "deleted items" | "deleted messages" | "bin" | "papierkorb" | "gelöschte elemente"
+        | "المحذوفات" => Some("trash"),
         "spam" | "junk" | "junk e-mail" | "junk email" | "bulk mail" | "البريد العشوائي" => Some("spam"),
-        "archive" | "archives" | "الأرشيف" => Some("archive"),
+        "archive" | "archives" | "archiv" | "الأرشيف" => Some("archive"),
+        "all mail" | "alle nachrichten" => Some("all"),
         _ => None,
     }
 }
@@ -542,7 +587,28 @@ mod tests {
         assert_eq!(role_from_name("INBOX.Sent", Some(".")), Some("sent"));
         assert_eq!(role_from_name("INBOX.Junk", Some(".")), Some("spam"));
         assert_eq!(role_from_name("[Gmail]/Sent Mail", Some("/")), Some("sent"));
+        assert_eq!(role_from_name("[Gmail]/All Mail", Some("/")), Some("all"));
+        assert_eq!(role_from_name("[Gmail]/Alle Nachrichten", Some("/")), Some("all"));
         assert_eq!(role_from_name("Projects", Some("/")), None);
         assert_eq!(display_name("INBOX.Archive", Some(".")), "Archive");
+    }
+
+    #[test]
+    fn gmail_all_mail_maps_to_archive_when_no_archive_exists() {
+        let mut gmail = vec![
+            RemoteFolder { path: "INBOX".into(), name: "Inbox".into(), delimiter: Some("/".into()), role: Some("inbox".into()), selectable: true },
+            RemoteFolder { path: "[Gmail]/All Mail".into(), name: "All Mail".into(), delimiter: Some("/".into()), role: Some("all".into()), selectable: true },
+        ];
+        assign_archive_fallback(&mut gmail);
+        assert_eq!(gmail[1].role.as_deref(), Some("archive"));
+
+        // When a dedicated Archive folder exists, \All stays "all"
+        let mut with_archive = vec![
+            RemoteFolder { path: "Archive".into(), name: "Archive".into(), delimiter: Some("/".into()), role: Some("archive".into()), selectable: true },
+            RemoteFolder { path: "All Mail".into(), name: "All Mail".into(), delimiter: Some("/".into()), role: Some("all".into()), selectable: true },
+        ];
+        assign_archive_fallback(&mut with_archive);
+        assert_eq!(with_archive[0].role.as_deref(), Some("archive"));
+        assert_eq!(with_archive[1].role.as_deref(), Some("all"));
     }
 }

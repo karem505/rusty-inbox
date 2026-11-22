@@ -36,6 +36,7 @@ ApplicationWindow {
     property var sidebarModel: ({ inbox: 0, pinned: 0, snoozed: 0, drafts: 0, categories: [], accounts: [] })
     readonly property var core: backend
     property string updateVersion: ""   // a newer release found by the update checker
+    property var syncProgress: ({ active: false, account: "", folder: "", folderIndex: 0, folderTotal: 0, downloaded: 0, total: 0 })
     property int openId: -1
     // preferences from Settings (kept in sync through settings_changed)
     property var prefs: JSON.parse(backend.settings_json())
@@ -52,6 +53,7 @@ ApplicationWindow {
         onTheme_changed: (json) => Theme.apply(JSON.parse(json))
         onSettings_changed: (json) => win.prefs = JSON.parse(json)
         onMail_changed: win.reload()
+        onSync_progress_changed: (json) => win.syncProgress = JSON.parse(json)
         onAction_done: (action) => win.reload()
         onActivated: (request) => win.handleRequest(request)
         onSend_result: (id, subject, error) => {
@@ -516,6 +518,7 @@ ApplicationWindow {
         Theme.apply(JSON.parse(backend.theme_json()))
         threadList.collapsed = prefs.collapseAutomated === false ? ({}) : ({ notifications: true, newsletters: true })
         reload()
+        syncProgress = JSON.parse(backend.sync_progress_json())
         backend.start()
         aiInbox.start()
         refreshAi()
@@ -592,6 +595,7 @@ ApplicationWindow {
                 Layout.fillHeight: true
                 model: win.sidebarModel
                 spec: win.spec
+                syncProgress: win.syncProgress
                 aiFeat: win.aiFeat
                 aiStatus: win.aiStatus
                 onSelect: (s) => win.select(s)
@@ -709,6 +713,7 @@ ApplicationWindow {
             property bool shown: false
             anchors.fill: parent
             backend: win.core
+            syncProgress: win.syncProgress
             visible: opacity > 0
             opacity: shown ? 1 : 0
             scale: shown ? 1 : 0.985

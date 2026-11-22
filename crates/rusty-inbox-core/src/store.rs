@@ -565,6 +565,24 @@ impl Store {
     pub fn insert_message(&self, m: &NewMessage) -> CoreResult<i64> {
         let mut db = self.db.lock();
         let tx = db.transaction()?;
+        let id = Self::insert_message_tx(&tx, m)?;
+        tx.commit()?;
+        Ok(id)
+    }
+
+    /// Insert a batch of messages within a single transaction for high performance.
+    pub fn insert_messages(&self, msgs: &[NewMessage]) -> CoreResult<Vec<i64>> {
+        let mut db = self.db.lock();
+        let tx = db.transaction()?;
+        let mut ids = Vec::with_capacity(msgs.len());
+        for m in msgs {
+            ids.push(Self::insert_message_tx(&tx, m)?);
+        }
+        tx.commit()?;
+        Ok(ids)
+    }
+
+    fn insert_message_tx(tx: &rusqlite::Transaction, m: &NewMessage) -> CoreResult<i64> {
         if let Some(id) = tx
             .query_row("SELECT id FROM messages WHERE folder_id=?1 AND uid=?2", params![m.folder_id, m.uid], |r| {
                 r.get::<_, i64>(0)
@@ -575,7 +593,6 @@ impl Store {
                 "UPDATE messages SET seen=?2, flagged=?3, answered=?4, draft=?5 WHERE id=?1",
                 params![id, m.seen, m.flagged, m.answered, m.draft],
             )?;
-            tx.commit()?;
             return Ok(id);
         }
 
@@ -680,7 +697,6 @@ impl Store {
             "INSERT INTO messages_fts(rowid,subject,sender,body) VALUES(?1,?2,?3,?4)",
             params![id, m.subject, sender, m.body_text.clone().unwrap_or_else(|| m.preview.clone())],
         )?;
-        tx.commit()?;
         Ok(id)
     }
 

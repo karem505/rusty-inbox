@@ -15,6 +15,7 @@ pub fn defaults() -> Value {
         "markReadOnOpen": true,      // opening a conversation marks it read
         "undoSeconds": 5,            // how long Done / Delete / Snooze can be undone
         "syncMinutes": 1,            // how often to check for new mail
+        "syncLimit": 0,              // 0 = all messages, or window limit (300, 1000, 5000...)
         "closeToTray": true,         // the close button keeps the app in the status bar
         "showDoneInInbox": false,    // keep Done conversations in the inbox, marked with a check
         // appearance
@@ -60,6 +61,7 @@ pub fn choices(key: &str) -> Option<Vec<Value>> {
     match key {
         "undoSeconds" => v(&[json!(5), json!(10), json!(20), json!(30)]),
         "syncMinutes" => v(&[json!(1), json!(2), json!(5), json!(15), json!(30)]),
+        "syncLimit" => v(&[json!(0), json!(300), json!(1000), json!(5000), json!(20000)]),
         "themeMode" => v(&[json!("system"), json!("light"), json!("dark")]),
         "density" => v(&[json!("comfortable"), json!("compact")]),
         "updateCheckDays" => v(&[json!(1), json!(7)]),
