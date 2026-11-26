@@ -43,6 +43,10 @@ pub mod qobject {
         #[qinvokable]
         fn sync_now(self: &Backend);
 
+        /// Current sync progress snapshot as JSON.
+        #[qinvokable]
+        fn sync_progress_json(self: &Backend) -> QString;
+
         /// All preferences as JSON (defaults overlaid with saved values).
         #[qinvokable]
         fn settings_json(self: &Backend) -> QString;
@@ -245,6 +249,10 @@ pub mod qobject {
         #[qsignal]
         fn mail_changed(self: Pin<&mut Backend>);
 
+        /// Live sync progress changed (JSON: {active, account, folder, folderIndex, folderTotal, downloaded, total}).
+        #[qsignal]
+        fn sync_progress_changed(self: Pin<&mut Backend>, json: QString);
+
         /// The update state changed (JSON, see `update_json`).
         #[qsignal]
         fn update_changed(self: Pin<&mut Backend>, json: QString);
@@ -329,6 +337,17 @@ impl qobject::Backend {
                 obj.as_mut().mail_changed();
             });
         });
+        let qt_sync = self.qt_thread();
+        engine::on_sync_progress(move |p| {
+            let downloaded = p.downloaded;
+            let json = serde_json::to_string(&p).unwrap_or_else(|_| "{\"active\":false}".into());
+            let _ = qt_sync.queue(move |mut obj: Pin<&mut qobject::Backend>| {
+                obj.as_mut().sync_progress_changed(QString::from(&json));
+                if downloaded > 0 {
+                    obj.as_mut().mail_changed();
+                }
+            });
+        });
         engine::on_synced(move || {
             let _ = qt.queue(|mut obj: Pin<&mut qobject::Backend>| obj.as_mut().mail_changed());
             crate::ai_inbox::wake(); // AI(C2): new mail may need a label
@@ -346,6 +365,10 @@ impl qobject::Backend {
 
     fn sync_now(&self) {
         engine::sync_now();
+    }
+
+    fn sync_progress_json(&self) -> QString {
+        QString::from(&engine::sync_progress_json().to_string())
     }
 
     fn settings_json(&self) -> QString {
@@ -367,7 +390,7 @@ impl qobject::Backend {
                 let json = crate::theme::current().to_string();
                 self.as_mut().theme_changed(QString::from(&json));
             }
-            "syncMinutes" => engine::sync_now(),
+            "syncMinutes" | "syncLimit" => engine::sync_now(),
             _ => {}
         }
         let all = crate::settings::all(engine::core().store()).to_string();

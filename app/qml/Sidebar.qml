@@ -12,6 +12,7 @@ Rectangle {
     signal select(var spec)
     signal openSettings(string page)
     property string updateVersion: ""
+    property var syncProgress: ({ active: false, account: "", folder: "", folderIndex: 0, folderTotal: 0, downloaded: 0, total: 0 })
     signal compose()
     // AI(C2): which organizing features are on ({needsReply, followUps, briefing, filter}) and the quiet error status
     property var aiFeat: ({})
@@ -178,6 +179,93 @@ Rectangle {
     }
 
     Rectangle {
+        id: syncBar
+        anchors.bottom: syncBar.top
+        width: parent.width
+        height: root.syncProgress && root.syncProgress.active ? syncCol.implicitHeight + 18 : 0
+        visible: height > 0
+        clip: true
+        color: Theme.sidebar
+        Behavior on height { NumberAnimation { duration: Theme.normal; easing.type: Theme.easing } }
+        Rectangle { width: parent.width; height: 1; color: Theme.border }
+        Column {
+            id: syncCol
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: 12
+            anchors.rightMargin: 12
+            spacing: 5
+            Row {
+                width: parent.width
+                spacing: 6
+                Text {
+                    width: parent.width - pctText.implicitWidth - 6
+                    elide: Text.ElideRight
+                    font.pixelSize: 11
+                    color: Theme.textSubtle
+                    text: {
+                        const sp = root.syncProgress
+                        if (!sp || !sp.active) return ""
+                        if (sp.total > 0) return qsTr("Downloading %1…").arg(sp.folder || qsTr("mail"))
+                        if (sp.folder) return qsTr("Syncing %1…").arg(sp.folder)
+                        return qsTr("Syncing %1…").arg(sp.account || qsTr("mail"))
+                    }
+                }
+                Text {
+                    id: pctText
+                    font.pixelSize: 11
+                    color: Theme.textMuted
+                    text: {
+                        const sp = root.syncProgress
+                        if (!sp || !sp.active) return ""
+                        if (sp.total > 0) return sp.downloaded + " / " + sp.total
+                        if (sp.folderTotal > 0) return sp.folderIndex + " / " + sp.folderTotal
+                        return ""
+                    }
+                }
+            }
+            Rectangle {
+                id: track
+                width: parent.width
+                height: 4
+                radius: 2
+                color: Theme.border
+                clip: true
+                readonly property bool determinate: !!(root.syncProgress && (root.syncProgress.total > 0 || root.syncProgress.folderTotal > 0))
+                readonly property real ratio: {
+                    const sp = root.syncProgress
+                    if (!sp || !sp.active) return 0
+                    if (sp.total > 0) return Math.min(1, sp.downloaded / sp.total)
+                    if (sp.folderTotal > 0) return Math.min(1, sp.folderIndex / sp.folderTotal)
+                    return 0
+                }
+                Rectangle {
+                    visible: track.determinate
+                    height: parent.height
+                    radius: 2
+                    color: Theme.accent
+                    width: Math.max(8, parent.width * track.ratio)
+                    Behavior on width { NumberAnimation { duration: 150 } }
+                }
+                Rectangle {
+                    id: indet
+                    visible: !track.determinate && root.syncProgress && root.syncProgress.active
+                    height: parent.height
+                    width: parent.width * 0.35
+                    radius: 2
+                    color: Theme.accent
+                    SequentialAnimation on x {
+                        running: indet.visible
+                        loops: Animation.Infinite
+                        NumberAnimation { from: -indet.width; to: track.width; duration: 1100; easing.type: Easing.InOutQuad }
+                    }
+                }
+            }
+        }
+    }
+
+    Rectangle {
         id: footer
         anchors.bottom: parent.bottom
         width: parent.width
@@ -200,7 +288,7 @@ Rectangle {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: footer.top
+        anchors.bottom: syncBar.top
         anchors.margins: 10
         contentHeight: col.height
         clip: true

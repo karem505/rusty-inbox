@@ -99,7 +99,17 @@ pub fn on_outbox(report: impl Fn(i64, String, Result<(), String>) + Send + Sync 
 }
 
 /// Longest one account's sync pass may take before it is abandoned until the next pass.
-const SYNC_PASS_LIMIT: Duration = Duration::from_secs(10 * 60);
+const SYNC_PASS_LIMIT: Duration = Duration::from_secs(30 * 60);
+
+/// Route the engine's sync-progress updates to `report` (called on an engine thread).
+pub fn on_sync_progress(report: impl Fn(rusty_inbox_core::SyncProgress) + Send + Sync + 'static) {
+    core().on_sync_progress(report);
+}
+
+/// Snapshot of the current sync progress as JSON.
+pub fn sync_progress_json() -> Value {
+    serde_json::to_value(core().sync_progress()).unwrap_or_else(|_| json!({ "active": false }))
+}
 
 /// Run a sync pass over every account now and then every `poll`, calling `notify` after each
 /// account. Each account's inbox is also watched with IMAP IDLE (see `watch_accounts`), so new
