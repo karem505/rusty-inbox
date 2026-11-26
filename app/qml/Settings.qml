@@ -1122,7 +1122,7 @@ Rectangle {
                                 onClicked: {
                                     root.addError = ""
                                     root.busyEmail = fEmail.text
-                                    const cleanPass = fPass.text.trim().replace(/\s+/g, "")
+                                    const cleanPass = form.provider === "gmail" ? fPass.text.trim().replace(/\s+/g, "") : fPass.text
                                     const req = { email: fEmail.text.trim(), name: fName.text.trim(), password: cleanPass }
                                     if (form.provider === "gmail" && !root.showManual) {
                                         Object.assign(req, {

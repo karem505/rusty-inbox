@@ -224,7 +224,7 @@ impl Connection {
             .or_else(|| store.setting("syncLimit").ok().flatten())
             .and_then(|v| v.as_u64())
             .map(|n| n as usize)
-            .unwrap_or(0);
+            .unwrap_or(INITIAL_WINDOW as usize);
         let window: Vec<u32> = if sync_limit == 0 {
             all.clone()
         } else {

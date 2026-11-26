@@ -15,7 +15,7 @@ pub fn defaults() -> Value {
         "markReadOnOpen": true,      // opening a conversation marks it read
         "undoSeconds": 5,            // how long Done / Delete / Snooze can be undone
         "syncMinutes": 1,            // how often to check for new mail
-        "syncLimit": 0,              // 0 = all messages, or window limit (300, 1000, 5000...)
+        "syncLimit": 300,            // newest messages kept in sync per folder; 0 = all messages
         "closeToTray": true,         // the close button keeps the app in the status bar
         "showDoneInInbox": false,    // keep Done conversations in the inbox, marked with a check
         // appearance
