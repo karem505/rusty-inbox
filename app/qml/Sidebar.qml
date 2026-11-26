@@ -58,8 +58,8 @@ Rectangle {
         width: parent ? parent.width : 0
         height: 32
         radius: 8
-        color: root.isCurrent(target) ? Theme.navSelected : (hover.hovered ? Theme.hover : "transparent")
-        Behavior on color { ColorAnimation { duration: Theme.fast } }
+        color: root.isCurrent(target) ? Theme.navSelected : (hover.hovered ? Theme.hover : Theme.sidebar)
+        Behavior on color { ColorAnimation { duration: 75 } }
         property bool expandable: false
         property bool open: false
         property var action: null     // custom tap (e.g. Settings) instead of selecting a list
