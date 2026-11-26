@@ -15,6 +15,7 @@ Rectangle {
     property string busyEmail: ""         // add-account request in flight
     property string addError: ""
     property bool showManual: false
+    property string recordingShortcut: "" // shortcut id currently being recorded, or ""
     signal closed()
     signal notice(string text)
     property alias aiPage: aiSettingsPage     // scripted check (Main.qml, AI(B))
@@ -37,7 +38,114 @@ Rectangle {
         acceptedButtons: Qt.AllButtons
         onWheel: (wheel) => wheel.accepted = true
     }
-    Keys.onEscapePressed: (root.page === "addAccount" || root.page === "importTb") ? root.page = "accounts" : root.closed()
+    readonly property var defaultShortcuts: ({
+        next: "J", prev: "K", open: "O", select: "X",
+        done: "E", toggleShowDone: "Shift+E", pin: "P", snooze: "S",
+        toggleRead: "U", delete: "#", spam: "!", undo: "Z",
+        search: "/", settings: "Ctrl+,",
+        compose: "C", reply: "R", replyAll: "A", forward: "F",
+        send: "Ctrl+Return", attach: "Ctrl+Shift+A", aiMenu: "Ctrl+J"
+    })
+    function shortcutValue(id) {
+        if (root.prefs.shortcuts && root.prefs.shortcuts[id] !== undefined) return root.prefs.shortcuts[id]
+        return defaultShortcuts[id] || ""
+    }
+    function setShortcut(id, seq) {
+        const cur = Object.assign({}, defaultShortcuts, root.prefs.shortcuts || ({}))
+        // clear duplicate if another action already uses this exact sequence
+        if (seq !== "") {
+            for (const k in cur) {
+                if (k !== id && cur[k].toLowerCase() === seq.toLowerCase()) {
+                    cur[k] = ""
+                }
+            }
+        }
+        cur[id] = seq
+        root.save("shortcuts", cur)
+    }
+    function resetShortcuts() {
+        root.recordingShortcut = ""
+        root.save("shortcuts", Object.assign({}, defaultShortcuts))
+        root.notice(qsTr("Keyboard shortcuts reset to defaults"))
+    }
+    function keyEventToSequence(e) {
+        // ignore bare modifier keys
+        if (e.key === Qt.Key_Control || e.key === Qt.Key_Shift || e.key === Qt.Key_Alt
+                || e.key === Qt.Key_Meta || e.key === Qt.Key_AltGr || e.key === Qt.Key_CapsLock) {
+            return null
+        }
+        const mods = []
+        if (e.modifiers & Qt.ControlModifier) mods.push("Ctrl")
+        if (e.modifiers & Qt.AltModifier) mods.push("Alt")
+        if (e.modifiers & Qt.MetaModifier) mods.push("Meta")
+
+        const named = ({
+            [Qt.Key_Return]: "Return",
+            [Qt.Key_Enter]: "Return",
+            [Qt.Key_Space]: "Space",
+            [Qt.Key_Tab]: "Tab",
+            [Qt.Key_Backtab]: "Tab",
+            [Qt.Key_Delete]: "Delete",
+            [Qt.Key_Insert]: "Insert",
+            [Qt.Key_Home]: "Home",
+            [Qt.Key_End]: "End",
+            [Qt.Key_PageUp]: "PgUp",
+            [Qt.Key_PageDown]: "PgDown",
+            [Qt.Key_Up]: "Up",
+            [Qt.Key_Down]: "Down",
+            [Qt.Key_Left]: "Left",
+            [Qt.Key_Right]: "Right",
+            [Qt.Key_F1]: "F1", [Qt.Key_F2]: "F2", [Qt.Key_F3]: "F3", [Qt.Key_F4]: "F4",
+            [Qt.Key_F5]: "F5", [Qt.Key_F6]: "F6", [Qt.Key_F7]: "F7", [Qt.Key_F8]: "F8",
+            [Qt.Key_F9]: "F9", [Qt.Key_F10]: "F10", [Qt.Key_F11]: "F11", [Qt.Key_F12]: "F12"
+        })
+        let keyName = named[e.key] || ""
+        const hasShift = (e.modifiers & Qt.ShiftModifier) !== 0
+        if (keyName !== "") {
+            if (hasShift) mods.push("Shift")
+            return mods.concat([keyName]).join("+")
+        }
+        if (e.key >= Qt.Key_A && e.key <= Qt.Key_Z) {
+            keyName = String.fromCharCode(e.key)
+            if (hasShift) mods.push("Shift")
+            return mods.concat([keyName]).join("+")
+        }
+        if (e.key >= Qt.Key_0 && e.key <= Qt.Key_9) {
+            if (hasShift && e.text && e.text.length === 1 && !/^[0-9]$/.test(e.text)) {
+                return mods.concat([e.text]).join("+")
+            }
+            keyName = String.fromCharCode(e.key)
+            if (hasShift) mods.push("Shift")
+            return mods.concat([keyName]).join("+")
+        }
+        if (e.text && e.text.length === 1 && e.text.charCodeAt(0) >= 33 && e.text.charCodeAt(0) <= 126) {
+            return mods.concat([e.text]).join("+")
+        }
+        return null
+    }
+    Keys.onPressed: (e) => {
+        if (root.recordingShortcut === "") return
+        e.accepted = true
+        if (e.key === Qt.Key_Escape) {
+            root.recordingShortcut = ""
+            return
+        }
+        if (e.key === Qt.Key_Backspace) {
+            root.setShortcut(root.recordingShortcut, "")
+            root.recordingShortcut = ""
+            return
+        }
+        const seq = root.keyEventToSequence(e)
+        if (seq !== null) {
+            root.setShortcut(root.recordingShortcut, seq)
+            root.recordingShortcut = ""
+        }
+    }
+    Keys.onEscapePressed: {
+        if (root.recordingShortcut !== "") { root.recordingShortcut = ""; return }
+        if (root.page === "addAccount" || root.page === "importTb") root.page = "accounts"
+        else root.closed()
+    }
 
     property var templates: []
     // Thunderbird import
@@ -69,7 +177,10 @@ Rectangle {
     function fmtMb(b) { return (b / 1048576).toFixed(1) }
     // Qt draws inline `code` in a larger fixed font than the text around it: keep it plain
     function plainCode(md) { return (md || "").replace(/`([^`\n]+)`/g, "$1") }
-    onPageChanged: if (page === "updates") { reloadUpdate(); if (upd.state === "idle") backend.check_update() }
+    onPageChanged: {
+        recordingShortcut = ""
+        if (page === "updates") { reloadUpdate(); if (upd.state === "idle") backend.check_update() }
+    }
     function reload() {
         reloadUpdate()
         prefs = JSON.parse(backend.settings_json())
@@ -1074,33 +1185,120 @@ Rectangle {
                     ColumnLayout {
                         visible: root.page === "shortcuts"
                         Layout.fillWidth: true
-                        spacing: 4
-                        Title { text: qsTr("Keyboard shortcuts") }
+                        spacing: 6
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Title { text: qsTr("Keyboard shortcuts"); Layout.fillWidth: true }
+                            Button2 { text: qsTr("Reset to defaults"); onClicked: root.resetShortcuts() }
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: qsTr("Click any shortcut to change it. Press Backspace to disable a shortcut, or Esc to cancel.")
+                            wrapMode: Text.Wrap
+                            font.pixelSize: 13
+                            color: Theme.textSubtle
+                            bottomPadding: 6
+                        }
                         Repeater {
                             model: [
-                                ["J / ↓", qsTr("Next conversation")], ["K / ↑", qsTr("Previous conversation")],
-                                ["Enter / O", qsTr("Open")], ["Esc", qsTr("Close / cancel selection")],
-                                ["X", qsTr("Select the focused conversation")], ["Ctrl+A", qsTr("Select all")],
-                                ["Shift+click", qsTr("Select a range")], ["Ctrl+click", qsTr("Add to the selection")],
-                                ["E", qsTr("Done / not done")], ["Shift+E", qsTr("Show or hide Done mail in the Inbox")], ["P", qsTr("Pin / unpin")], ["S", qsTr("Snooze")],
-                                ["U", qsTr("Mark read / unread")], ["#, Delete", qsTr("Delete")], ["!", qsTr("Spam")],
-                                ["Z / Ctrl+Z", qsTr("Undo")], ["Ctrl+,", qsTr("Settings")],
-                                ["C / Ctrl+N", qsTr("New message")], ["R", qsTr("Reply")], ["A", qsTr("Reply all")],
-                                ["F", qsTr("Forward")], ["Ctrl+Enter", qsTr("Send")], ["Ctrl+Shift+A", qsTr("Attach files")]
+                                { id: "next", label: qsTr("Next conversation"), extra: "↓" },
+                                { id: "prev", label: qsTr("Previous conversation"), extra: "↑" },
+                                { id: "open", label: qsTr("Open conversation"), extra: "Enter" },
+                                { id: "select", label: qsTr("Select focused conversation"), extra: "" },
+                                { id: "done", label: qsTr("Done / not done"), extra: "" },
+                                { id: "toggleShowDone", label: qsTr("Show or hide Done mail in Inbox"), extra: "" },
+                                { id: "pin", label: qsTr("Pin / unpin"), extra: "" },
+                                { id: "snooze", label: qsTr("Snooze"), extra: "" },
+                                { id: "toggleRead", label: qsTr("Mark read / unread"), extra: "" },
+                                { id: "delete", label: qsTr("Delete"), extra: "Delete" },
+                                { id: "spam", label: qsTr("Mark as spam"), extra: "" },
+                                { id: "undo", label: qsTr("Undo"), extra: "Ctrl+Z" },
+                                { id: "search", label: qsTr("Search"), extra: "" },
+                                { id: "settings", label: qsTr("Settings"), extra: "" },
+                                { id: "compose", label: qsTr("New message"), extra: "Ctrl+N" },
+                                { id: "reply", label: qsTr("Reply"), extra: "" },
+                                { id: "replyAll", label: qsTr("Reply all"), extra: "" },
+                                { id: "forward", label: qsTr("Forward"), extra: "" },
+                                { id: "send", label: qsTr("Send message"), extra: "" },
+                                { id: "attach", label: qsTr("Attach files"), extra: "" },
+                                { id: "aiMenu", label: qsTr("AI writing tools"), extra: "" }
+                            ]
+                            delegate: Rectangle {
+                                id: scRow
+                                required property var modelData
+                                readonly property bool recording: root.recordingShortcut === modelData.id
+                                readonly property string seq: root.shortcutValue(modelData.id)
+                                Layout.fillWidth: true
+                                implicitHeight: 42
+                                radius: 8
+                                color: Theme.surface
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 14
+                                    anchors.rightMargin: 10
+                                    spacing: 10
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: scRow.modelData.label
+                                        font.pixelSize: 13
+                                        color: Theme.text
+                                    }
+                                    Text {
+                                        visible: scRow.modelData.extra !== ""
+                                        text: qsTr("also %1").arg(scRow.modelData.extra)
+                                        font.pixelSize: 11
+                                        color: Theme.textMuted
+                                    }
+                                    Rectangle {
+                                        id: keyPill
+                                        Layout.preferredWidth: Math.max(108, pillText.implicitWidth + 24)
+                                        implicitHeight: 28
+                                        radius: 6
+                                        color: scRow.recording ? Theme.selected : (pillHover.hovered ? Theme.hover : Theme.window)
+                                        border.color: scRow.recording ? Theme.accent : Theme.border
+                                        border.width: scRow.recording ? 1.5 : 1
+                                        Behavior on color { ColorAnimation { duration: Theme.fast } }
+                                        Text {
+                                            id: pillText
+                                            anchors.centerIn: parent
+                                            text: scRow.recording ? qsTr("Press a key…") : (scRow.seq !== "" ? scRow.seq : qsTr("Disabled"))
+                                            font.pixelSize: 12
+                                            font.weight: scRow.seq !== "" || scRow.recording ? Font.DemiBold : Font.Normal
+                                            font.italic: !scRow.recording && scRow.seq === ""
+                                            color: scRow.recording ? Theme.accent : (scRow.seq !== "" ? Theme.text : Theme.textMuted)
+                                        }
+                                        HoverHandler { id: pillHover; cursorShape: Qt.PointingHandCursor }
+                                        TapHandler {
+                                            onTapped: {
+                                                root.recordingShortcut = scRow.recording ? "" : scRow.modelData.id
+                                                root.forceActiveFocus()
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Group { text: qsTr("Mouse & system") }
+                        Repeater {
+                            model: [
+                                ["Esc", qsTr("Close / cancel selection")],
+                                ["Ctrl+A", qsTr("Select all")],
+                                ["Shift+click", qsTr("Select a range")],
+                                ["Ctrl+click", qsTr("Add to the selection")]
                             ]
                             delegate: RowLayout {
                                 required property var modelData
                                 Layout.fillWidth: true
                                 spacing: 14
                                 Rectangle {
-                                    Layout.preferredWidth: 120
+                                    Layout.preferredWidth: 108
                                     implicitHeight: 28
                                     radius: 6
                                     color: Theme.surface
                                     border.color: Theme.border
-                                    Text { anchors.centerIn: parent; text: modelData[0]; font.pixelSize: 12; font.weight: Font.DemiBold; color: Theme.text }
+                                    Text { anchors.centerIn: parent; text: modelData[0]; font.pixelSize: 12; font.weight: Font.DemiBold; color: Theme.textMuted }
                                 }
-                                Text { Layout.fillWidth: true; text: modelData[1]; font.pixelSize: 14; color: Theme.text }
+                                Text { Layout.fillWidth: true; text: modelData[1]; font.pixelSize: 13; color: Theme.textSubtle }
                             }
                         }
                     }
