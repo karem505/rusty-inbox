@@ -577,7 +577,12 @@ mod tests {
             ..Default::default()
         };
         let t = std::time::Instant::now();
-        let r = super::Connection::connect_within(&acct, &Credential::password("pw"), std::time::Duration::from_millis(500)).await;
+        let r = super::Connection::connect_within(
+            &acct,
+            &Credential::password("pw"),
+            std::time::Duration::from_millis(500),
+        )
+        .await;
         assert!(format!("{:#}", r.err().expect("must fail")).contains("timed out"));
         assert!(t.elapsed() < std::time::Duration::from_secs(5));
     }

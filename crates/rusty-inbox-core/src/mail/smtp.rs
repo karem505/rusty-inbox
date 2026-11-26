@@ -91,16 +91,15 @@ pub async fn send(acct: &Account, cred: &Credential, o: &Outgoing) -> Result<(Ve
         _ => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(acct.smtp_host.clone()),
     };
     let builder = match cred {
-        Credential::Password(password) => builder.credentials(Credentials::new(acct.username.clone(), password.clone())),
+        Credential::Password(password) => {
+            builder.credentials(Credentials::new(acct.username.clone(), password.clone()))
+        }
         // the access token goes where the password would; lettre builds the XOAUTH2 string
         Credential::XOAuth2(token) => builder
             .credentials(Credentials::new(acct.username.clone(), token.clone()))
             .authentication(vec![Mechanism::Xoauth2]),
     };
-    let transport = builder
-        .port(acct.smtp_port)
-        .timeout(Some(Duration::from_secs(60)))
-        .build();
+    let transport = builder.port(acct.smtp_port).timeout(Some(Duration::from_secs(60))).build();
     let mut rcpt: Vec<lettre::Address> = vec![];
     for (_, a) in o.to.iter().chain(&o.cc).chain(&o.bcc) {
         rcpt.push(a.parse()?);

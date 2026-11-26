@@ -94,9 +94,8 @@ pub fn resolve_config(
 
 /// The configured client, if any (see [`resolve_config`]).
 pub fn config(store: &Store) -> Option<OAuthConfig> {
-    let setting = |k: &str| {
-        store.setting(&format!("rustyInbox.{k}")).ok().flatten().and_then(|v| v.as_str().map(str::to_string))
-    };
+    let setting =
+        |k: &str| store.setting(&format!("rustyInbox.{k}")).ok().flatten().and_then(|v| v.as_str().map(str::to_string));
     resolve_config(
         setting("googleClientId"),
         setting("googleClientSecret"),
@@ -273,7 +272,8 @@ pub fn parse_token_response(status: u16, body: &str) -> Result<TokenSet> {
     if !(200..300).contains(&status) {
         bail!("Google answered with HTTP {status}");
     }
-    let access_token = r.access_token.filter(|t| !t.is_empty()).ok_or_else(|| anyhow!("Google sent no access token"))?;
+    let access_token =
+        r.access_token.filter(|t| !t.is_empty()).ok_or_else(|| anyhow!("Google sent no access token"))?;
     Ok(TokenSet {
         access_token,
         refresh_token: r.refresh_token.filter(|t| !t.is_empty()),
@@ -444,12 +444,10 @@ mod tests {
     #[test]
     fn xoauth2_matches_googles_documented_format() {
         let s = xoauth2_string("someuser@example.com", "ya29.vF9dft4qmTc2Nvb3RlckBhdHRhdmlzdGEuY29tCg");
-        assert_eq!(
-            s,
-            "user=someuser@example.com\x01auth=Bearer ya29.vF9dft4qmTc2Nvb3RlckBhdHRhdmlzdGEuY29tCg\x01\x01"
-        );
+        assert_eq!(s, "user=someuser@example.com\x01auth=Bearer ya29.vF9dft4qmTc2Nvb3RlckBhdHRhdmlzdGEuY29tCg\x01\x01");
         // Google's documented base64 form of the same string
-        let b = base64::engine::general_purpose::STANDARD.encode(xoauth2_string("someuser@example.com", "ya29.vF9dft4qmTc2Nvb3RlckBhdHRhdmlzdGEuY29tCg"));
+        let b = base64::engine::general_purpose::STANDARD
+            .encode(xoauth2_string("someuser@example.com", "ya29.vF9dft4qmTc2Nvb3RlckBhdHRhdmlzdGEuY29tCg"));
         assert!(b.starts_with("dXNlcj1zb21ldXNlckBleGFtcGxlLmNvbQFhdXRoPUJlYXJlciB5YTI5"));
     }
 
@@ -521,17 +519,24 @@ mod tests {
 
     #[test]
     fn token_response_parsing() {
-        let t = parse_token_response(200, r#"{"access_token":"a","expires_in":3599,"refresh_token":"r","scope":"x"}"#).unwrap();
+        let t = parse_token_response(200, r#"{"access_token":"a","expires_in":3599,"refresh_token":"r","scope":"x"}"#)
+            .unwrap();
         assert_eq!(t.access_token, "a");
         assert_eq!(t.refresh_token.as_deref(), Some("r"));
         assert_eq!(t.expires_in, Duration::from_secs(3599));
         // a refresh answer has no new refresh token
         let t = parse_token_response(200, r#"{"access_token":"a2","expires_in":3599}"#).unwrap();
         assert_eq!(t.refresh_token, None);
-        let e = parse_token_response(400, r#"{"error":"invalid_grant","error_description":"Token has been expired or revoked."}"#)
-            .unwrap_err();
+        let e = parse_token_response(
+            400,
+            r#"{"error":"invalid_grant","error_description":"Token has been expired or revoked."}"#,
+        )
+        .unwrap_err();
         assert!(e.to_string().contains("Remove the account and add it again"));
-        assert!(parse_token_response(400, r#"{"error":"invalid_client"}"#).unwrap_err().to_string().contains("invalid_client"));
+        assert!(parse_token_response(400, r#"{"error":"invalid_client"}"#)
+            .unwrap_err()
+            .to_string()
+            .contains("invalid_client"));
         assert!(parse_token_response(502, "<html>").is_err());
         assert!(parse_token_response(200, r#"{"expires_in":1}"#).is_err());
     }
