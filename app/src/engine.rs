@@ -290,9 +290,12 @@ pub async fn add_account(req: Value) -> Result<String, String> {
     };
     let account = match manual {
         Some(a) => {
-            let mut c = rusty_inbox_core::mail::imap::Connection::connect(&a, &password)
-                .await
-                .map_err(|e| friendly(format!("{e:#}")))?;
+            let mut c = rusty_inbox_core::mail::imap::Connection::connect(
+                &a,
+                &rusty_inbox_core::mail::oauth::Credential::password(&password),
+            )
+            .await
+            .map_err(|e| friendly(format!("{e:#}")))?;
             let _ = c.logout().await;
             a
         }
