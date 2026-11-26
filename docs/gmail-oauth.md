@@ -29,8 +29,11 @@ keeps working.
    cargo build --release
    ```
 
-   For the official releases, add both as repository secrets and pass them as environment
-   variables to the build steps in `.github/workflows/release.yml`.
+   The release workflow passes the repository secrets `RUSTY_INBOX_GOOGLE_CLIENT_ID` and
+   `RUSTY_INBOX_GOOGLE_CLIENT_SECRET` to the build, so official AppImage, tarball, Windows and macOS
+   builds have Gmail sign-in built in; forks without the secrets build without it. The Flatpak
+   and AUR source builds do not get the secrets (the Flatpak build is sandboxed), so they use an
+   app password or the user's own client ID until the manifest is given them.
 6. **Verification limits.** `https://mail.google.com/` is a *restricted* scope. Until the app is
    verified by Google (including a security assessment), an unverified app in *Testing* or
    *In production* status is limited to **100 users**, shows an "unverified app" warning, and in

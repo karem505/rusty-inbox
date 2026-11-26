@@ -83,6 +83,10 @@ jobs:
         with:
           key: ${{ matrix.arch }}
       - name: Build
+        env:
+          # Gmail sign-in (OAuth2) is built in when the repository has these secrets; forks build without it
+          RUSTY_INBOX_GOOGLE_CLIENT_ID: ${{ secrets.RUSTY_INBOX_GOOGLE_CLIENT_ID }}
+          RUSTY_INBOX_GOOGLE_CLIENT_SECRET: ${{ secrets.RUSTY_INBOX_GOOGLE_CLIENT_SECRET }}
         run: cargo build --release -p rusty-inbox
       - name: Shared libraries
         run: |
@@ -178,6 +182,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build
+        env:
+          # Gmail sign-in (OAuth2) is built in when the repository has these secrets; forks build without it
+          RUSTY_INBOX_GOOGLE_CLIENT_ID: ${{ secrets.RUSTY_INBOX_GOOGLE_CLIENT_ID }}
+          RUSTY_INBOX_GOOGLE_CLIENT_SECRET: ${{ secrets.RUSTY_INBOX_GOOGLE_CLIENT_SECRET }}
         run: cargo build --release -p rusty-inbox
       - name: Deploy Qt
         run: |
@@ -266,6 +274,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build
+        env:
+          # Gmail sign-in (OAuth2) is built in when the repository has these secrets; forks build without it
+          RUSTY_INBOX_GOOGLE_CLIENT_ID: ${{ secrets.RUSTY_INBOX_GOOGLE_CLIENT_ID }}
+          RUSTY_INBOX_GOOGLE_CLIENT_SECRET: ${{ secrets.RUSTY_INBOX_GOOGLE_CLIENT_SECRET }}
         run: cargo build --release -p rusty-inbox
       - name: App bundle
         run: |
