@@ -225,11 +225,8 @@ impl Connection {
             .and_then(|v| v.as_u64())
             .map(|n| n as usize)
             .unwrap_or(INITIAL_WINDOW as usize);
-        let window: Vec<u32> = if sync_limit == 0 {
-            all.clone()
-        } else {
-            all.iter().rev().take(sync_limit).rev().copied().collect()
-        };
+        let window: Vec<u32> =
+            if sync_limit == 0 { all.clone() } else { all.iter().rev().take(sync_limit).rev().copied().collect() };
         let min_window = window.first().copied().unwrap_or(0);
 
         // removals (only within what we track)
@@ -421,10 +418,22 @@ pub fn role_from_name(path: &str, delim: Option<&str>) -> Option<&'static str> {
     }
     let leaf = display_name(path, delim).to_lowercase();
     match leaf.as_str() {
-        "sent" | "sent items" | "sent messages" | "sent mail" | "gesendet" | "gesendete objekte" | "المرسل"
+        "sent"
+        | "sent items"
+        | "sent messages"
+        | "sent mail"
+        | "gesendet"
+        | "gesendete objekte"
+        | "المرسل"
         | "البريد المرسل" => Some("sent"),
         "drafts" | "draft" | "entwürfe" | "المسودات" => Some("drafts"),
-        "trash" | "deleted" | "deleted items" | "deleted messages" | "bin" | "papierkorb" | "gelöschte elemente"
+        "trash"
+        | "deleted"
+        | "deleted items"
+        | "deleted messages"
+        | "bin"
+        | "papierkorb"
+        | "gelöschte elemente"
         | "المحذوفات" => Some("trash"),
         "spam" | "junk" | "junk e-mail" | "junk email" | "bulk mail" | "البريد العشوائي" => Some("spam"),
         "archive" | "archives" | "archiv" | "الأرشيف" => Some("archive"),
@@ -596,16 +605,40 @@ mod tests {
     #[test]
     fn gmail_all_mail_maps_to_archive_when_no_archive_exists() {
         let mut gmail = vec![
-            RemoteFolder { path: "INBOX".into(), name: "Inbox".into(), delimiter: Some("/".into()), role: Some("inbox".into()), selectable: true },
-            RemoteFolder { path: "[Gmail]/All Mail".into(), name: "All Mail".into(), delimiter: Some("/".into()), role: Some("all".into()), selectable: true },
+            RemoteFolder {
+                path: "INBOX".into(),
+                name: "Inbox".into(),
+                delimiter: Some("/".into()),
+                role: Some("inbox".into()),
+                selectable: true,
+            },
+            RemoteFolder {
+                path: "[Gmail]/All Mail".into(),
+                name: "All Mail".into(),
+                delimiter: Some("/".into()),
+                role: Some("all".into()),
+                selectable: true,
+            },
         ];
         assign_archive_fallback(&mut gmail);
         assert_eq!(gmail[1].role.as_deref(), Some("archive"));
 
         // When a dedicated Archive folder exists, \All stays "all"
         let mut with_archive = vec![
-            RemoteFolder { path: "Archive".into(), name: "Archive".into(), delimiter: Some("/".into()), role: Some("archive".into()), selectable: true },
-            RemoteFolder { path: "All Mail".into(), name: "All Mail".into(), delimiter: Some("/".into()), role: Some("all".into()), selectable: true },
+            RemoteFolder {
+                path: "Archive".into(),
+                name: "Archive".into(),
+                delimiter: Some("/".into()),
+                role: Some("archive".into()),
+                selectable: true,
+            },
+            RemoteFolder {
+                path: "All Mail".into(),
+                name: "All Mail".into(),
+                delimiter: Some("/".into()),
+                role: Some("all".into()),
+                selectable: true,
+            },
         ];
         assign_archive_fallback(&mut with_archive);
         assert_eq!(with_archive[0].role.as_deref(), Some("archive"));

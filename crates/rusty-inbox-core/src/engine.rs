@@ -645,17 +645,9 @@ impl Engine {
     pub async fn sync_account(&self, email: &str) -> anyhow::Result<usize> {
         let lock = self.sync_lock(email);
         let _one_at_a_time = lock.lock().await;
-        self.emit_sync_progress(SyncProgress {
-            active: true,
-            account: email.to_string(),
-            ..Default::default()
-        });
+        self.emit_sync_progress(SyncProgress { active: true, account: email.to_string(), ..Default::default() });
         let res = self.sync_account_inner(email).await;
-        self.emit_sync_progress(SyncProgress {
-            active: false,
-            account: email.to_string(),
-            ..Default::default()
-        });
+        self.emit_sync_progress(SyncProgress { active: false, account: email.to_string(), ..Default::default() });
         res
     }
 
@@ -1149,5 +1141,4 @@ mod tests {
         assert!(has_cid_refs("background:url(cid:x)"));
         assert!(!has_cid_refs("<p>no images</p>"));
     }
-
 }
