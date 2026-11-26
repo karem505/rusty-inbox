@@ -79,6 +79,8 @@ struct Inner {
     pool: Mutex<HashMap<String, Vec<imap::Connection>>>,
     /// when the next new connection to each IMAP host may start (see `NEW_CONNECTION_GAP`)
     next_connect: Mutex<HashMap<String, std::time::Instant>>,
+    /// OAuth2 access tokens per account with the time they stop being usable
+    access_tokens: Mutex<HashMap<String, (String, std::time::Instant)>>,
     /// one sync at a time per account (a full pass and a pushed inbox sync must not interleave:
     /// one would take the other's new messages for deleted ones)
     sync_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
@@ -115,6 +117,7 @@ impl Engine {
                 on_sync_progress: Mutex::new(None),
                 pool: Mutex::new(HashMap::new()),
                 next_connect: Mutex::new(HashMap::new()),
+                access_tokens: Mutex::new(HashMap::new()),
                 sync_locks: Mutex::new(HashMap::new()),
                 push_live: Mutex::new(HashSet::new()),
             }),
@@ -501,9 +504,9 @@ impl Engine {
         }
         let store = &self.inner.store;
         let acct = store.account(&d.account)?.ok_or_else(|| anyhow::anyhow!("no account {}", d.account))?;
-        let pw = store.secret(&format!("password:{}", d.account))?.ok_or_else(|| anyhow::anyhow!("no password"))?;
+        let cred = self.credential(&d.account).await?;
         let files = self.attachment_files(d).await?;
-        let (raw, mid) = mail::smtp::send(&acct, &pw, &compose::outgoing(d, files)).await?;
+        let (raw, mid) = mail::smtp::send(&acct, &cred, &compose::outgoing(d, files)).await?;
         tracing::info!("sent {mid} from {}", d.account);
         // everything below is bookkeeping: the mail is out, so failures only log
         if let Some(mut c) = self.connect(&d.account).await {
@@ -851,17 +854,38 @@ impl Engine {
         }
     }
 
+    /// What to log in with: the app password, or for a Gmail account signed in with Google a
+    /// current OAuth2 access token (renewed from the stored refresh token when it is about to expire).
+    pub async fn credential(&self, email: &str) -> anyhow::Result<mail::oauth::Credential> {
+        use mail::oauth::{self, Credential};
+        let store = &self.inner.store;
+        let Some(refresh) = store.secret(&format!("oauth:{email}"))? else {
+            let pw = store.secret(&format!("password:{email}"))?.ok_or_else(|| anyhow::anyhow!("no password"))?;
+            return Ok(Credential::Password(pw));
+        };
+        if let Some((token, until)) = self.inner.access_tokens.lock().get(email) {
+            if *until > std::time::Instant::now() {
+                return Ok(Credential::XOAuth2(token.clone()));
+            }
+        }
+        let cfg = oauth::config(store).ok_or_else(|| anyhow::anyhow!(oauth::NOT_CONFIGURED))?;
+        let t = oauth::refresh_access_token(&cfg, &refresh).await?;
+        let until = std::time::Instant::now() + t.expires_in.saturating_sub(oauth::EXPIRY_MARGIN);
+        self.inner.access_tokens.lock().insert(email.to_string(), (t.access_token.clone(), until));
+        Ok(Credential::XOAuth2(t.access_token))
+    }
+
     /// A fresh login (not from the pool), for a long-lived connection such as IDLE.
     async fn new_connection(&self, email: &str) -> anyhow::Result<imap::Connection> {
         let store = &self.inner.store;
         let acct = store.account(email)?.ok_or_else(|| anyhow::anyhow!("no account {email}"))?;
-        let pw = store.secret(&format!("password:{email}"))?.ok_or_else(|| anyhow::anyhow!("no password"))?;
+        let cred = self.credential(email).await?;
         let wait = self.reserve_connect_slot(&acct.imap_host);
         if !wait.is_zero() {
             tracing::debug!("waiting {wait:?} before connecting to {}", acct.imap_host);
             tokio::time::sleep(wait).await;
         }
-        imap::Connection::connect(&acct, &pw).await
+        imap::Connection::connect(&acct, &cred).await
     }
 
     fn report_new_mail(&self, email: &str, before: Option<i64>) {

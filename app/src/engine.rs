@@ -307,6 +307,67 @@ pub async fn add_account(req: Value) -> Result<String, String> {
     Ok(email)
 }
 
+/// Whether Gmail sign-in with Google is set up (a client ID is configured).
+pub fn gmail_oauth_available() -> bool {
+    rusty_inbox_core::mail::oauth::config(core().store()).is_some()
+}
+
+/// The Gmail account an OAuth2 sign-in creates (Gmail's fixed servers).
+pub fn gmail_oauth_account(email: &str, name: &str) -> Account {
+    Account {
+        email: email.to_string(),
+        name: name.to_string(),
+        account_type: "gmail".into(),
+        imap_host: "imap.gmail.com".into(),
+        imap_port: 993,
+        imap_security: "tls".into(),
+        smtp_host: "smtp.gmail.com".into(),
+        smtp_port: 465,
+        smtp_security: "tls".into(),
+        username: email.to_string(),
+    }
+}
+
+/// Sign in to Gmail with Google (OAuth2, PKCE, loopback redirect). `on_url` gets the Google page
+/// to open in the browser; the call returns once the user finished there, the login was verified
+/// over IMAP and the account and its refresh token were saved.
+/// `req`: `{email, name}`.
+pub async fn add_gmail_oauth(req: Value, on_url: impl FnOnce(String)) -> Result<String, String> {
+    use rusty_inbox_core::mail::{imap, oauth};
+    let text = |k: &str| req[k].as_str().unwrap_or("").trim().to_string();
+    let email = text("email").to_lowercase();
+    let (local, domain) = email.split_once('@').unwrap_or(("", ""));
+    if local.is_empty() || !domain.contains('.') || email.contains(' ') {
+        return Err("Enter a valid email address".into());
+    }
+    if std::env::var_os("RUSTY_INBOX_OFFLINE").is_some() {
+        return Err("Offline mode: accounts cannot be verified".into());
+    }
+    let store = core().store();
+    let cfg = oauth::config(store).ok_or_else(|| oauth::NOT_CONFIGURED.to_string())?;
+    let session = oauth::AuthSession::start(&cfg, Some(&email)).await.map_err(|e| format!("{e:#}"))?;
+    on_url(session.url.clone());
+    let tokens = session.finish(oauth::SIGN_IN_TIMEOUT).await.map_err(|e| format!("{e:#}"))?;
+    let refresh = tokens.refresh_token.ok_or_else(|| {
+        "Google did not return a long-lived sign-in. Remove Rusty Inbox under myaccount.google.com/connections and try again"
+            .to_string()
+    })?;
+    let account = gmail_oauth_account(&email, &text("name"));
+    let mut c = imap::Connection::connect(&account, &oauth::Credential::XOAuth2(tokens.access_token))
+        .await
+        .map_err(|e| {
+            tracing::warn!("gmail oauth {email}: {e:#}");
+            format!("Gmail rejected the sign-in: {e:#}. Check that the address is the Google account you chose and that IMAP is enabled in Gmail settings")
+        })?;
+    let _ = c.logout().await;
+    store.upsert_account(&account).map_err(|e| e.to_string())?;
+    store.set_secret(&format!("oauth:{email}"), &refresh).map_err(|e| e.to_string())?;
+    // an app password from an earlier setup is no longer used
+    let _ = store.delete_secret(&format!("password:{email}"));
+    sync_now();
+    Ok(email)
+}
+
 /// Accounts found in Thunderbird profiles (no passwords), each with `exists` (already added here)
 /// and `hasPassword` (Thunderbird's saved password can be brought over).
 pub fn thunderbird_of(store: &Store) -> Value {

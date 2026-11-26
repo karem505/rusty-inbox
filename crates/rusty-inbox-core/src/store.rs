@@ -475,6 +475,7 @@ impl Store {
         db.execute("DELETE FROM threads WHERE account=?1", [email])?;
         db.execute("DELETE FROM accounts WHERE email=?1", [email])?;
         drop(db);
+        self.delete_secret(&format!("oauth:{email}"))?;
         self.delete_secret(&format!("password:{email}"))
     }
 

@@ -151,9 +151,11 @@ weekly, or on demand) and shows what changed. How the update is applied depends 
 ### Adding accounts
 
 Open *Settings → Accounts*. Most providers are detected from the address alone. For other
-servers, enter the IMAP and SMTP hosts by hand. For **Gmail**, create an
-[app password](https://myaccount.google.com/apppasswords) and use it as the password. Coming
-from Thunderbird? Choose *Import from Thunderbird*.
+servers, enter the IMAP and SMTP hosts by hand. For **Gmail**, choose *Sign in with Google*: the
+browser opens, you approve access, and no app password or 2-Step Verification is needed (builds
+without a Google client ID hide this option behind a message; see
+[Gmail sign-in](docs/gmail-oauth.md)). An [app password](https://myaccount.google.com/apppasswords)
+still works as the password. Coming from Thunderbird? Choose *Import from Thunderbird*.
 
 From the command line:
 

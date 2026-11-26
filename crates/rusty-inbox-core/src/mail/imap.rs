@@ -1,6 +1,7 @@
 //! IMAP client: connect (implicit TLS / STARTTLS / plain), folder discovery, incremental sync,
 //! flag/move operations and IDLE.
 
+use crate::mail::oauth::{Credential, XOAuth2Auth};
 use crate::mail::{mime, tls};
 use crate::store::{Account, Store};
 use anyhow::{anyhow, Context, Result};
@@ -53,14 +54,14 @@ async fn timed<T>(what: &str, f: impl std::future::Future<Output = Result<T>>) -
 }
 
 impl Connection {
-    pub async fn connect(acct: &Account, password: &str) -> Result<Connection> {
-        Self::connect_within(acct, password, CONNECT_TIMEOUT).await
+    pub async fn connect(acct: &Account, cred: &Credential) -> Result<Connection> {
+        Self::connect_within(acct, cred, CONNECT_TIMEOUT).await
     }
 
     /// Connect and log in; the TCP connect and the TLS handshake each get `limit`. A server (or
     /// its firewall) can accept the connection and then never answer the handshake: without a
     /// limit that hangs the caller forever.
-    pub async fn connect_within(acct: &Account, password: &str, limit: Duration) -> Result<Connection> {
+    pub async fn connect_within(acct: &Account, cred: &Credential, limit: Duration) -> Result<Connection> {
         let addr = (acct.imap_host.as_str(), acct.imap_port);
         let host = || format!("{}:{}", acct.imap_host, acct.imap_port);
         let tcp = tokio::time::timeout(limit, TcpStream::connect(addr))
@@ -94,7 +95,14 @@ impl Connection {
             let _greeting = timed("greeting", async { Ok(client.read_response().await?) }).await?;
         }
         let session = timed("login", async {
-            client.login(&acct.username, password).await.map_err(|(e, _)| anyhow!("IMAP login failed: {e}"))
+            match cred {
+                Credential::Password(password) => client.login(&acct.username, password).await,
+                Credential::XOAuth2(token) => {
+                    let auth = XOAuth2Auth { user: acct.username.clone(), token: token.clone() };
+                    client.authenticate("XOAUTH2", auth).await
+                }
+            }
+            .map_err(|(e, _)| anyhow!("IMAP login failed: {e}"))
         })
         .await?;
         Ok(Connection { session, account: acct.email.clone(), idle_since: std::time::Instant::now() })
@@ -569,7 +577,7 @@ mod tests {
             ..Default::default()
         };
         let t = std::time::Instant::now();
-        let r = super::Connection::connect_within(&acct, "pw", std::time::Duration::from_millis(500)).await;
+        let r = super::Connection::connect_within(&acct, &Credential::password("pw"), std::time::Duration::from_millis(500)).await;
         assert!(format!("{:#}", r.err().expect("must fail")).contains("timed out"));
         assert!(t.elapsed() < std::time::Duration::from_secs(5));
     }

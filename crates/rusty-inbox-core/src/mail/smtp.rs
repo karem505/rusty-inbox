@@ -1,9 +1,10 @@
 //! SMTP sending (lettre) and outgoing message construction.
 
+use crate::mail::oauth::Credential;
 use crate::store::Account;
 use anyhow::{Context, Result};
 use lettre::message::{header, Mailbox, MultiPart, SinglePart};
-use lettre::transport::smtp::authentication::Credentials;
+use lettre::transport::smtp::authentication::{Credentials, Mechanism};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use std::time::Duration;
 
@@ -82,16 +83,22 @@ fn local_date(raw: Vec<u8>) -> Vec<u8> {
     out
 }
 
-pub async fn send(acct: &Account, password: &str, o: &Outgoing) -> Result<(Vec<u8>, String)> {
+pub async fn send(acct: &Account, cred: &Credential, o: &Outgoing) -> Result<(Vec<u8>, String)> {
     let (raw, mid) = build(o)?;
     let builder = match acct.smtp_security.as_str() {
         "tls" => AsyncSmtpTransport::<Tokio1Executor>::relay(&acct.smtp_host)?,
         "starttls" => AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&acct.smtp_host)?,
         _ => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(acct.smtp_host.clone()),
     };
+    let builder = match cred {
+        Credential::Password(password) => builder.credentials(Credentials::new(acct.username.clone(), password.clone())),
+        // the access token goes where the password would; lettre builds the XOAUTH2 string
+        Credential::XOAuth2(token) => builder
+            .credentials(Credentials::new(acct.username.clone(), token.clone()))
+            .authentication(vec![Mechanism::Xoauth2]),
+    };
     let transport = builder
         .port(acct.smtp_port)
-        .credentials(Credentials::new(acct.username.clone(), password.to_string()))
         .timeout(Some(Duration::from_secs(60)))
         .build();
     let mut rcpt: Vec<lettre::Address> = vec![];

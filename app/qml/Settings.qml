@@ -16,6 +16,8 @@ Rectangle {
     property string busyEmail: ""         // add-account request in flight
     property string addError: ""
     property bool showManual: false
+    property bool oauthWaiting: false      // Google sign-in open in the browser
+    property bool showOwnClient: false
     property string recordingShortcut: "" // shortcut id currently being recorded, or ""
     signal closed()
     signal notice(string text)
@@ -209,8 +211,10 @@ Rectangle {
             }
         }
         function onUpdate_changed(json) { root.upd = JSON.parse(json) }
+        function onOauth_url(url) { Qt.openUrlExternally(url) }
         function onAccount_added(email, error) {
             root.busyEmail = ""
+            root.oauthWaiting = false
             if (error === "") {
                 root.addError = ""
                 root.reload()
@@ -980,6 +984,61 @@ Rectangle {
                                             form.applyProviderDefaults(provCard.modelData.id)
                                         }
                                     }
+                                }
+                            }
+                        }
+
+                        // Sign in with Google (OAuth2): no app password needed
+                        ColumnLayout {
+                            visible: form.provider === "gmail"
+                            Layout.fillWidth: true
+                            spacing: 8
+                                                        readonly property bool available: root.prefs.googleClientId !== "" || root.backend.gmail_oauth_available()
+                            Text {
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
+                                font.pixelSize: 12
+                                color: Theme.text
+                                text: parent.available
+                                    ? qsTr("Recommended: sign in with your Google account in the browser. No app password and no 2-Step Verification needed.")
+                                    : qsTr("Sign in with Google is not set up in this build (no Google client ID). Use an app password below, or enter your own Google OAuth client ID.")
+                            }
+                            RowLayout {
+                                spacing: 10
+                                Button2 {
+                                    text: root.oauthWaiting ? qsTr("Waiting for the browser…") : qsTr("Sign in with Google")
+                                    primary: true
+                                    enabled: root.busyEmail === "" && fEmail.text.indexOf("@") > 0 && parent.parent.available
+                                    onClicked: {
+                                        root.addError = ""
+                                        root.busyEmail = fEmail.text
+                                        root.oauthWaiting = true
+                                        root.backend.gmail_oauth_start(JSON.stringify({ email: fEmail.text.trim(), name: fName.text.trim() }))
+                                    }
+                                }
+                                Button2 { visible: root.oauthWaiting; text: qsTr("Cancel sign-in"); onClicked: root.backend.gmail_oauth_cancel() }
+                            }
+                            Text {
+                                text: (root.showOwnClient ? "▾ " : "▸ ") + qsTr("Use my own Google client ID")
+                                font.pixelSize: 12
+                                color: Theme.textSubtle
+                                TapHandler { onTapped: root.showOwnClient = !root.showOwnClient }
+                            }
+                            ColumnLayout {
+                                visible: root.showOwnClient
+                                Layout.fillWidth: true
+                                spacing: 8
+                                Field {
+                                    label: qsTr("Google OAuth client ID (Desktop app)")
+                                    placeholder: "123456-abc.apps.googleusercontent.com"
+                                    text: root.prefs.googleClientId || ""
+                                    input.onEditingFinished: if (text !== (root.prefs.googleClientId || "")) root.save("googleClientId", text.trim())
+                                }
+                                Field {
+                                    label: qsTr("Client secret (optional)")
+                                    secret: true
+                                    text: root.prefs.googleClientSecret || ""
+                                    input.onEditingFinished: if (text !== (root.prefs.googleClientSecret || "")) root.save("googleClientSecret", text.trim())
                                 }
                             }
                         }

@@ -63,6 +63,19 @@ pub mod qobject {
         #[qinvokable]
         fn add_account(self: Pin<&mut Backend>, request_json: &QString);
 
+        /// Whether Gmail sign-in with Google is set up (a Google client ID is configured).
+        #[qinvokable]
+        fn gmail_oauth_available(self: &Backend) -> bool;
+
+        /// Sign in to Gmail with Google in the system browser. Emits `oauth_url` with the page to
+        /// open, then `account_added` when done.
+        #[qinvokable]
+        fn gmail_oauth_start(self: Pin<&mut Backend>, request_json: &QString);
+
+        /// Give up waiting for the browser sign-in.
+        #[qinvokable]
+        fn gmail_oauth_cancel(self: &Backend);
+
         /// Accounts found in Thunderbird (JSON list, no passwords).
         #[qinvokable]
         fn thunderbird_json(self: &Backend) -> QString;
@@ -229,6 +242,10 @@ pub mod qobject {
         /// Result of `add_account`: `error` is empty on success.
         #[qsignal]
         fn account_added(self: Pin<&mut Backend>, email: QString, error: QString);
+
+        /// The Google sign-in page to open in the browser.
+        #[qsignal]
+        fn oauth_url(self: Pin<&mut Backend>, url: QString);
 
         /// A preference changed (JSON of all preferences).
         #[qsignal]
@@ -415,6 +432,35 @@ impl qobject::Backend {
                 obj.as_mut().mail_changed();
             });
         });
+    }
+
+    fn gmail_oauth_available(&self) -> bool {
+        engine::gmail_oauth_available()
+    }
+
+    fn gmail_oauth_start(self: Pin<&mut Self>, request_json: &QString) {
+        let qt = self.qt_thread();
+        let req: serde_json::Value = serde_json::from_str(&request_json.to_string()).unwrap_or_default();
+        engine::runtime().spawn(async move {
+            let qt_url = qt.clone();
+            let on_url = move |url: String| {
+                let _ = qt_url.queue(move |mut obj: Pin<&mut qobject::Backend>| {
+                    obj.as_mut().oauth_url(QString::from(&url));
+                });
+            };
+            let (email, error) = match engine::add_gmail_oauth(req, on_url).await {
+                Ok(e) => (e, String::new()),
+                Err(e) => (String::new(), e),
+            };
+            let _ = qt.queue(move |mut obj: Pin<&mut qobject::Backend>| {
+                obj.as_mut().account_added(QString::from(&email), QString::from(&error));
+                obj.as_mut().mail_changed();
+            });
+        });
+    }
+
+    fn gmail_oauth_cancel(&self) {
+        rusty_inbox_core::mail::oauth::cancel_sign_in();
     }
 
     fn thunderbird_json(&self) -> QString {

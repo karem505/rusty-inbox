@@ -2,6 +2,7 @@
 
 pub mod imap;
 pub mod mime;
+pub mod oauth;
 pub mod smtp;
 pub mod tls;
 
@@ -97,7 +98,7 @@ pub async fn autodetect(email: &str, name: &str, password: &str) -> anyhow::Resu
             smtp_security: ss,
             username: email.to_string(),
         };
-        match imap::Connection::connect(&acct, password).await {
+        match imap::Connection::connect(&acct, &oauth::Credential::password(password)).await {
             Ok(mut c) => {
                 let _ = c.logout().await;
                 return Ok(acct);
