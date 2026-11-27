@@ -346,18 +346,42 @@ pub struct SidebarCounts {
     pub follow_up: i64,
 }
 
+const KEYRING_SERVICE: &str = "org.rustyinbox.secrets";
+
+fn get_or_create_db_key() -> CoreResult<String> {
+    static CACHED_KEY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    if let Some(k) = CACHED_KEY.get() {
+        return Ok(k.clone());
+    }
+    let entry = keyring::Entry::new(KEYRING_SERVICE, "db:master_key")
+        .map_err(|e| crate::CoreError::Message(format!("keyring entry error: {e}")))?;
+    let key = match entry.get_password() {
+        Ok(k) if !k.is_empty() => k,
+        _ => {
+            let key = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
+            let _ = entry.set_password(&key);
+            key
+        }
+    };
+    let _ = CACHED_KEY.set(key.clone());
+    Ok(key)
+}
+
 pub struct Store {
     pub(crate) db: Mutex<Connection>,
-    secrets: Mutex<Connection>,
+    secrets: Mutex<Option<Connection>>,
+    pub(crate) use_keyring: bool,
     /// AI(C2): show the model's category instead of the rule's where it is allowed to (see `ai_store`)
     pub(crate) ai_apply: std::sync::atomic::AtomicBool,
+    secrets_cache: Mutex<HashMap<String, String>>,
 }
 
 impl Store {
     /// Flush the WAL into the main database files (quit / termination).
     pub fn checkpoint(&self) -> CoreResult<()> {
-        for c in [&self.db, &self.secrets] {
-            c.lock().execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+        self.db.lock().execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+        if let Some(s) = self.secrets.lock().as_ref() {
+            s.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
         }
         Ok(())
     }
@@ -366,16 +390,36 @@ impl Store {
         std::fs::create_dir_all(dir).map_err(|e| crate::CoreError::Message(e.to_string()))?;
         let path = dir.join("rusty-inbox.sqlite");
         let db = Connection::open(&path)?;
-        db.execute_batch(SCHEMA)?;
-        let secrets_path = dir.join("secrets.sqlite");
-        let secrets = Connection::open(&secrets_path)?;
-        secrets.execute_batch("CREATE TABLE IF NOT EXISTS secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL);")?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&secrets_path, std::fs::Permissions::from_mode(0o600));
+        if let Ok(key) = get_or_create_db_key() {
+            let _ = db.pragma_update(None, "key", &key);
         }
-        Ok(Store { db: Mutex::new(db), secrets: Mutex::new(secrets), ai_apply: Default::default() })
+        db.execute_batch(SCHEMA)?;
+
+        // Migrate from secrets.sqlite if present
+        let secrets_path = dir.join("secrets.sqlite");
+        if secrets_path.exists() {
+            if let Ok(old_secrets) = Connection::open(&secrets_path) {
+                if let Ok(mut st) = old_secrets.prepare("SELECT key, value FROM secrets") {
+                    if let Ok(rows) = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
+                        for row in rows.flatten() {
+                            let (k, v) = row;
+                            if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &k) {
+                                let _ = entry.set_password(&v);
+                            }
+                        }
+                    }
+                }
+            }
+            let _ = std::fs::remove_file(&secrets_path);
+        }
+
+        Ok(Store {
+            db: Mutex::new(db),
+            secrets: Mutex::new(None),
+            use_keyring: true,
+            ai_apply: Default::default(),
+            secrets_cache: Mutex::new(HashMap::new()),
+        })
     }
 
     pub fn in_memory() -> CoreResult<Store> {
@@ -383,7 +427,13 @@ impl Store {
         db.execute_batch(SCHEMA)?;
         let secrets = Connection::open_in_memory()?;
         secrets.execute_batch("CREATE TABLE secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL);")?;
-        Ok(Store { db: Mutex::new(db), secrets: Mutex::new(secrets), ai_apply: Default::default() })
+        Ok(Store {
+            db: Mutex::new(db),
+            secrets: Mutex::new(Some(secrets)),
+            use_keyring: false,
+            ai_apply: Default::default(),
+            secrets_cache: Mutex::new(HashMap::new()),
+        })
     }
 
     // ---------- settings ----------
@@ -406,19 +456,64 @@ impl Store {
     // ---------- secrets ----------
 
     pub fn set_secret(&self, key: &str, value: &str) -> CoreResult<()> {
-        self.secrets.lock().execute(
-            "INSERT INTO secrets(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            params![key, value],
-        )?;
+        self.secrets_cache.lock().insert(key.to_string(), value.to_string());
+        if self.use_keyring {
+            let entry = keyring::Entry::new(KEYRING_SERVICE, key)
+                .map_err(|e| crate::CoreError::Message(format!("keyring entry error: {e}")))?;
+            entry
+                .set_password(value)
+                .map_err(|e| crate::CoreError::Message(format!("keyring set error: {e}")))?;
+            return Ok(());
+        }
+        if let Some(s) = self.secrets.lock().as_ref() {
+            s.execute(
+                "INSERT INTO secrets(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                params![key, value],
+            )?;
+        }
         Ok(())
     }
 
     pub fn secret(&self, key: &str) -> CoreResult<Option<String>> {
-        Ok(self.secrets.lock().query_row("SELECT value FROM secrets WHERE key=?1", [key], |r| r.get(0)).optional()?)
+        if let Some(cached) = self.secrets_cache.lock().get(key) {
+            return Ok(Some(cached.clone()));
+        }
+        if self.use_keyring {
+            let entry = keyring::Entry::new(KEYRING_SERVICE, key)
+                .map_err(|e| crate::CoreError::Message(format!("keyring entry error: {e}")))?;
+            return match entry.get_password() {
+                Ok(pw) => {
+                    self.secrets_cache.lock().insert(key.to_string(), pw.clone());
+                    Ok(Some(pw))
+                }
+                Err(keyring::Error::NoEntry) => Ok(None),
+                Err(e) => Err(crate::CoreError::Message(format!("keyring get error: {e}"))),
+            };
+        }
+        if let Some(s) = self.secrets.lock().as_ref() {
+            let pw: Option<String> =
+                s.query_row("SELECT value FROM secrets WHERE key=?1", [key], |r| r.get(0)).optional()?;
+            if let Some(ref p) = pw {
+                self.secrets_cache.lock().insert(key.to_string(), p.clone());
+            }
+            return Ok(pw);
+        }
+        Ok(None)
     }
 
     pub fn delete_secret(&self, key: &str) -> CoreResult<()> {
-        self.secrets.lock().execute("DELETE FROM secrets WHERE key=?1", [key])?;
+        self.secrets_cache.lock().remove(key);
+        if self.use_keyring {
+            let entry = keyring::Entry::new(KEYRING_SERVICE, key)
+                .map_err(|e| crate::CoreError::Message(format!("keyring entry error: {e}")))?;
+            return match entry.delete_credential() {
+                Ok(_) | Err(keyring::Error::NoEntry) => Ok(()),
+                Err(e) => Err(crate::CoreError::Message(format!("keyring delete error: {e}"))),
+            };
+        }
+        if let Some(s) = self.secrets.lock().as_ref() {
+            s.execute("DELETE FROM secrets WHERE key=?1", [key])?;
+        }
         Ok(())
     }
 
@@ -883,6 +978,12 @@ impl Store {
             "UPDATE messages SET body_text=?2, body_html=?3, body_fetched=1 WHERE id=?1",
             params![message_id, text, html],
         )?;
+        if let Some(t) = text {
+            let _ = db.execute(
+                "INSERT OR REPLACE INTO messages_fts(rowid, subject, sender, body) SELECT id, subject, coalesce(from_name, '') || ' ' || from_addr, ?2 FROM messages WHERE id=?1",
+                params![message_id, t],
+            );
+        }
         Ok(())
     }
 
@@ -1820,6 +1921,37 @@ mod tests {
         assert_eq!(s.setting("themeMode").unwrap(), Some(json!("dark")));
         s.set_secret("password:a", "pw").unwrap();
         assert_eq!(s.secret("password:a").unwrap().as_deref(), Some("pw"));
+    }
+
+    #[test]
+    fn secrets_migration_from_sqlite() {
+        let dir = tempfile::tempdir().unwrap();
+        let secrets_path = dir.path().join("secrets.sqlite");
+        let conn = rusqlite::Connection::open(&secrets_path).unwrap();
+        conn.execute("CREATE TABLE secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL);", []).unwrap();
+        conn.execute("INSERT INTO secrets (key, value) VALUES ('test_mig:user', 'secret123');", []).unwrap();
+        drop(conn);
+
+        let store = Store::open(dir.path()).unwrap();
+        assert!(!secrets_path.exists());
+        if store.use_keyring {
+            assert_eq!(store.secret("test_mig:user").unwrap().as_deref(), Some("secret123"));
+            store.delete_secret("test_mig:user").unwrap();
+            assert_eq!(store.secret("test_mig:user").unwrap(), None);
+        }
+    }
+
+    #[test]
+    fn encrypted_database_is_protected() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store.set_setting("encrypted_check", &json!("secret_data")).unwrap();
+        drop(store);
+
+        let path = dir.path().join("rusty-inbox.sqlite");
+        let plain_conn = rusqlite::Connection::open(&path).unwrap();
+        let res = plain_conn.query_row("SELECT value FROM settings WHERE key='encrypted_check'", [], |r| r.get::<_, String>(0));
+        assert!(res.is_err(), "Opening encrypted DB without key must fail!");
     }
 
     #[test]
