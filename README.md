@@ -28,6 +28,8 @@ native Rust and the interface is Qt Quick, not a browser shell.
 
 How it is built, and the decisions that keep it fast: [Rusty Inbox, a Rust email client: the build story](https://aboelmakarem.pro/blog/rusty-inbox-open-source-email-client-rust-qt). Project page: [aboelmakarem.pro/apps/rusty-inbox](https://aboelmakarem.pro/apps/rusty-inbox).
 
+Shipping your own desktop app? The release pipeline behind the author's apps (CI on three systems, tag-driven releases, Linux packaging, code signing) is written up as a short playbook: [Ship a Cross-Platform Desktop App with Rust + Tauri](https://aboelmakarem.pro/playbooks/ship-desktop-app-tauri?utm_source=github&utm_medium=readme&utm_campaign=rusty-inbox).
+
 ▶ **Watch on YouTube** (click an image): what's new in 0.2.0, the AI assistant (1:40), and the original launch video (0:53).
 
 <table>
